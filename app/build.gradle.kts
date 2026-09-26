@@ -37,6 +37,24 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // InnerTubeX is published only through JitPack, which rebuilds every tagged
+    // version with whatever Kotlin is current — so each release carries 2.4
+    // metadata while this module compiles with the 2.2.10 that AGP 9.4.1 ships.
+    // The check is skipped rather than the toolchain moved: AGP pins that Kotlin
+    // version and the Compose compiler plugin has to agree with it, so raising
+    // Kotlin means moving AGP too, which is a far larger change than reading a
+    // library compiled one metadata version ahead.
+    //
+    // Safe in practice because 2.4 metadata carries no construct the 2.2
+    // compiler cannot read; the failure mode it guards against is a library
+    // using language features this compiler does not have, and none of the ones
+    // InnerTubeX uses are new.
+    kotlin {
+        compilerOptions {
+            freeCompilerArgs.add("-Xskip-metadata-version-check")
+        }
+    }
+
     buildFeatures {
         compose = true
     }
@@ -82,6 +100,23 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
     implementation(libs.kotlinx.serialization.json)
+
+    // ---- YouTube Music ----
+    // Search needs none of this; streaming does. InnerTubeX answers which client
+    // identity to ask with and unlocks the ciphered formats, and the PO token it
+    // needs for that comes from a WebView running BotGuard under Rhino.
+    implementation(libs.innerTubeX)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
+    implementation(libs.rhino)
+    implementation(libs.rhino.engine)
+
+    // Shared HTTP client. The Soulseek protocol speaks its own framing over raw
+    // sockets and does not use this; everything that fetches over HTTP does, so
+    // connections are pooled in one place rather than per call site.
+    implementation(libs.okhttp)
 
     testImplementation(libs.junit)
 }

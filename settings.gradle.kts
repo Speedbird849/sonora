@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // InnerTubeX, the YouTube stream extractor, is published via JitPack.
+        maven("https://jitpack.io")
     }
 }
 
