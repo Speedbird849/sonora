@@ -63,15 +63,19 @@ object YtmSearch {
 
     private const val CLIENT_VERSION = "1.20260707.12.00"
 
-    private val USER_AGENT =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+    /**
+     * The `params` that ask for the songs tab rather than the mixed default. */
 
-    /** The `params` that ask for the songs tab rather than the mixed default. */
     private const val SONGS_PARAMS = "EgWKAQIIAWoKEAkQChAFEAMQBA=="
 
-    /** A page is 20 rows; asking for more than two is not worth the round trips. */
+    /**
+     * How many rows a search returns, and how many pages it walks to get them.
+     *
+     * A page is 20. Forty is two pages, which is more than a listener scrolls and less than would
+     * cost a round trip per keystroke for rows nobody reaches.
+     */
     private const val MAX_RESULTS = 40
+    private const val MAX_PAGES = 2
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -98,11 +102,55 @@ object YtmSearch {
                 setBody(body.toString())
             }.body()
 
-            parse(json.parseToJsonElement(response).jsonObject)
+            var first: JsonElement = json.parseToJsonElement(response)
+            val tracks = parse(first).toMutableList()
+
+            // The shelf carries a continuation token rather than a URL, so a second page is asked
+            // for by handing the token back. Stopping at one page would cap every search at 20
+            // results however many the query matched, which reads as "that is all there is".
+            var page = 1
+            while (tracks.size < MAX_RESULTS && page < MAX_PAGES) {
+                val token = continuationOf(first) ?: break
+                val next = continuation(token, term) ?: break
+                first = next
+                tracks += parse(next)
+                page++
+            }
+
+            tracks.distinctBy { it.videoId }
         }.onFailure {
             Log.w(TAG, "search for '$term' failed: ${it.message}")
         }.getOrDefault(emptyList())
     }
+
+    /** The token that asks for the page after this one, or null when there isn't one. */
+    private fun continuationOf(root: JsonElement): String? {
+        for (tab in root.descend("contents", "tabbedSearchResultsRenderer", "tabs").arr()) {
+            for (section in tab.descend("tabRenderer", "content", "sectionListRenderer", "contents").arr()) {
+                val shelf = section.obj()?.get("musicShelfRenderer").obj() ?: continue
+                for (item in shelf["contents"].arr()) {
+                    item.descend("continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
+                        .str()
+                        ?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    private suspend fun continuation(token: String, term: String): JsonElement? = runCatching {
+        val body = buildJsonObject {
+            put("context", context())
+            put("query", JsonPrimitive(term))
+            put("params", JsonPrimitive(SONGS_PARAMS))
+            put("continuation", JsonPrimitive(token))
+        }
+        YtmHttp.ktor.post(ENDPOINT) {
+            parameter("key", KEY)
+            contentType(ContentType.Application.Json)
+            setBody(body.toString())
+        }.body<String>().let { json.parseToJsonElement(it) }
+    }.getOrNull()
 
     private fun context() = buildJsonObject {
         put(
@@ -126,11 +174,10 @@ object YtmSearch {
                     ?.get("contents").arr()
                 for (row in rows) {
                     parseRow(row.obj()?.get("musicResponsiveListItemRenderer"))?.let(tracks::add)
-                    if (tracks.size >= MAX_RESULTS) return tracks
                 }
             }
         }
-        return tracks
+        return tracks.distinctBy { it.videoId }
     }
 
     /**

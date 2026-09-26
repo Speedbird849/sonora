@@ -61,7 +61,10 @@ import androidx.compose.ui.unit.dp
 import dev.sonora.backend.DownloadState
 import dev.sonora.backend.SearchHit
 import dev.sonora.backend.SearchFolders
+import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.SearchQueries
+import dev.sonora.ytm.YtmTrack
+import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.SearchSource
 import dev.sonora.backend.SearchState
 import dev.sonora.backend.SonoraBackend
@@ -99,6 +102,7 @@ fun SearchScreen() {
     // Either source can be turned off. The search itself still asks both: the catalogue answer is
     // cached, and switching back should not mean waiting for it again.
     val showSoulseek = SearchSource.SOULSEEK in sources
+    val showYoutube = SearchSource.YOUTUBE_MUSIC in sources
     val catalogueShown = SearchSource.CATALOGUE in sources && catalogue.isNotEmpty()
 
     // Asked once, before the first download. Where the files land decides whether they survive
@@ -122,6 +126,18 @@ fun SearchScreen() {
         // tap is easy to repeat.
         if (uri != null) waiting?.let { SonoraBackend.download(context, it) }
         waiting = null
+    }
+
+    /**
+     * Looks for one YouTube Music track on the peer network.
+     *
+     * The whole point of the two sources side by side: YouTube can play a track immediately but
+     * only ever at its own bitrate, while the network may be holding a lossless rip of the same
+     * recording. So the artist and title go back out as a network search, rather than a download
+     * being offered for a stream — the two are different things and only one of them is a file.
+     */
+    fun peerSearch(track: YtmTrack) {
+        SonoraBackend.search(context, SearchQueries.forTrack(track.title, track.artist))
     }
 
     fun startDownload(hit: SearchHit) {
@@ -160,7 +176,8 @@ fun SearchScreen() {
             }
         }
 
-        if (catalogue.isNotEmpty() || searchState.hits.isNotEmpty() || searchState.searching) {
+        if (catalogue.isNotEmpty() || searchState.hits.isNotEmpty() ||
+            searchState.youtube.isNotEmpty() || searchState.searching || searchState.youtubeLoading) {
             ChipRow {
                 SearchSource.entries.forEach { source ->
                     SearchChip(
@@ -178,7 +195,7 @@ fun SearchScreen() {
             onCancelRemaining = { SonoraBackend.cancelPendingDownloads() },
         )
 
-        statusNote(searchState, showSoulseek, catalogueShown)?.let { Note(it) }
+        statusNote(searchState, showSoulseek, showYoutube, catalogueShown)?.let { Note(it) }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             if (showingHistory) {
@@ -258,6 +275,35 @@ fun SearchScreen() {
                                 }
                             }
                         }
+                    }
+                }
+
+                // YouTube Music first, because it is the one source that can be heard the moment it
+                // is tapped: a stream resolves and plays, where a peer result is a file that has to
+                // finish downloading before anything comes out of it.
+                if (showYoutube && (searchState.youtube.isNotEmpty() || searchState.youtubeLoading)) {
+                    item(key = "youtube") {
+                        SectionHeader(
+                            title = "On YouTube Music",
+                            subtitle = "Plays now; search the network for a lossless copy",
+                        )
+                    }
+                    items(
+                        searchState.youtube,
+                        key = { "ytm:" + it.videoId },
+                    ) { track ->
+                        YoutubeRow(
+                            track = track,
+                            onPlay = { SonoraPlayer.play(context, LibraryTrack.fromRemote(track)) },
+                            onQueue = {
+                                SonoraPlayer.play(
+                                    context,
+                                    searchState.youtube.map(LibraryTrack::fromRemote),
+                                    searchState.youtube.indexOf(track),
+                                )
+                            },
+                            onSearchSoulseek = { peerSearch(track) },
+                        )
                     }
                 }
 
@@ -366,20 +412,37 @@ private fun ChipRow(content: @Composable RowScope.() -> Unit) {
  * especially has to mean no results from anywhere: said above a row of catalogue matches it would
  * read as a flat contradiction.
  */
-internal fun statusNote(state: SearchState, showSoulseek: Boolean, catalogueShown: Boolean): String? =
-    when {
+internal fun statusNote(
+    state: SearchState,
+    showSoulseek: Boolean,
+    showYoutube: Boolean,
+    catalogueShown: Boolean,
+): String? {
+    val youtubeCount = state.youtube.size
+    val anyResults = state.hits.isNotEmpty() || youtubeCount > 0 || catalogueShown
+    val stillLooking = state.searching || state.youtubeLoading
+    val peerLine = "${state.matched} file(s) from ${state.peers} peer(s)"
+    val youtubeLine = "$youtubeCount on YouTube Music"
+
+    return when {
         // Nothing has been searched for, so there is no result to describe.
         state.query.isBlank() -> null
 
-        state.searching && showSoulseek -> "Searching\u2026 ${state.matched} match(es) so far"
+        // Says nothing about counts while a source is still outstanding: half the numbers would be
+        // final and half provisional, and a total that is quietly wrong is worse than none.
+        stillLooking -> "Searching\u2026"
 
-        state.hits.isEmpty() && !catalogueShown -> "No results for \u201c${state.query}\u201d."
+        !anyResults -> "No results for \u201c${state.query}\u201d."
 
-        state.hits.isNotEmpty() && showSoulseek ->
-            "${state.matched} match(es) from ${state.peers} peer(s)"
+        showSoulseek && state.hits.isNotEmpty() && showYoutube -> "$youtubeLine \u00b7 $peerLine"
+
+        showSoulseek && state.hits.isNotEmpty() -> peerLine
+
+        showYoutube -> youtubeLine
 
         else -> null
     }
+}
 
 @Composable
 private fun SearchBar(
@@ -465,6 +528,85 @@ private fun Note(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
+}
+
+/**
+ * One YouTube Music result.
+ *
+ * Tapping plays it, because that is the whole reason this source is first in the list: the audio
+ * arrives without a download. The overflow holds the two things that are *not* playing — queueing it
+ * after whatever is going, and going to look for a lossless copy on the network.
+ */
+@Composable
+private fun YoutubeRow(
+    track: YtmTrack,
+    onPlay: () -> Unit,
+    onQueue: () -> Unit,
+    onSearchSoulseek: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPlay)
+            .padding(start = 20.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(
+            url = track.artworkUrl,
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 12.dp),
+        ) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = listOfNotNull(track.artist, track.album).joinToString("  ·  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Box {
+            IconButton(onClick = { menu = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Play next") },
+                    onClick = {
+                        menu = false
+                        onQueue()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Search the network for a FLAC") },
+                    onClick = {
+                        menu = false
+                        onSearchSoulseek()
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -40,4 +40,23 @@ object SearchQueries {
             "$who $name"
         }
     }
+
+    /**
+     * One track by name.
+     *
+     * The album is left out on purpose. A track appears on several releases — a single, an album, a
+     * deluxe edition — and peers tend to file all of them under the same `Artist\Album\` folder
+     * name, so adding it narrows the results without making them more likely to be the right
+     * recording. The track-level duration check in the results is what separates those.
+     */
+    fun forTrack(title: String, artist: String): String {
+        val name = title.trim()
+        val who = artist.trim()
+
+        return if (who.isEmpty() || PLACEHOLDERS.any { it.equals(who, ignoreCase = true) }) {
+            name
+        } else {
+            "$who $name"
+        }
+    }
 }
