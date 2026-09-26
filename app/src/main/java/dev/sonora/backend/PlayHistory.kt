@@ -1,5 +1,6 @@
 package dev.sonora.backend
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -15,17 +16,24 @@ object PlayHistory {
     /**
      * Records a play as the most recent, returning the new list.
      *
-     * Keyed by path because the filesystem is the library: a track *is* its file, so playing
-     * something again moves it rather than adding a second copy. Without that, putting one album on
-     * repeat would fill the list with that album and push out everything else.
+     * Keyed by [LibraryTrack.key] because that is what identifies a track whether or not it has been
+     * downloaded: playing something again moves it rather than adding a second copy. Without that,
+     * putting one album on repeat would fill the list with that album and push out everything else.
      */
-    fun record(history: List<PlayedTrack>, path: String, at: Long): List<PlayedTrack> {
-        if (path.isBlank()) return history
+    fun record(history: List<PlayedTrack>, key: String, at: Long): List<PlayedTrack> {
+        if (key.isBlank()) return history
 
-        return (listOf(PlayedTrack(path, at)) + history.filterNot { it.path == path }).take(MAX)
+        return (listOf(PlayedTrack(key, at)) + history.filterNot { it.key == key }).take(MAX)
     }
 }
 
-/** One track that was played, and when it started. */
+/**
+ * One track that was played, and when it started.
+ *
+ * The field keeps its stored name, so a history written before streaming existed still reads.
+ */
 @Serializable
-data class PlayedTrack(val path: String, val playedAt: Long)
+data class PlayedTrack(
+    @SerialName("path") val key: String,
+    val playedAt: Long,
+)

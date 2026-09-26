@@ -160,7 +160,7 @@ fun PlaylistDetailScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(tracks, key = { _, track -> track.file.absolutePath }) { index, track ->
+                itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->
                     TrackListRow(
                         track = track,
                         meta = listOfNotNull(track.artist, track.album).joinToString("  \u00b7  "),

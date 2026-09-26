@@ -185,7 +185,7 @@ object SonoraBackend {
 
             // The folder scan comes first because a just-downloaded file is not in MediaStore yet:
             // registering it with the media scanner is asynchronous.
-            val known = downloaded.mapTo(HashSet()) { it.file.absolutePath }
+            val known = downloaded.mapTo(HashSet()) { it.key }
 
             // Everything else comes from the provider, which already has the tags. It is consulted
             // even when device music is off — filtered down to the download folder — because it is
@@ -193,8 +193,8 @@ object SonoraBackend {
             // folder itself.
             val root = directory.absolutePath + File.separator
             val fromProvider = DeviceMusic.list(context).filter { track ->
-                track.file.absolutePath !in known &&
-                    (_settings.value.includeDeviceMusic || track.file.absolutePath.startsWith(root))
+                track.key !in known &&
+                    (_settings.value.includeDeviceMusic || track.key.startsWith(root))
             }
 
             val library = (downloaded + fromProvider).sortedBy { it.title.lowercase() }
@@ -249,7 +249,7 @@ object SonoraBackend {
         scope.launch {
             val updated = PlayHistory.record(
                 history = _playHistory.value,
-                path = track.file.absolutePath,
+                key = track.key,
                 at = System.currentTimeMillis(),
             )
             if (updated == _playHistory.value) return@launch
@@ -345,7 +345,7 @@ object SonoraBackend {
             if (firstTrack == null) {
                 created
             } else {
-                Playlists.addTrack(created, id, firstTrack.file.absolutePath)
+                Playlists.addTrack(created, id, firstTrack.key)
             }
         }
     }
@@ -359,11 +359,11 @@ object SonoraBackend {
     }
 
     fun addToPlaylist(context: Context, id: String, track: LibraryTrack) {
-        editPlaylists(context) { Playlists.addTrack(it, id, track.file.absolutePath) }
+        editPlaylists(context) { Playlists.addTrack(it, id, track.key) }
     }
 
-    fun removeFromPlaylist(context: Context, id: String, path: String) {
-        editPlaylists(context) { Playlists.removeTrack(it, id, path) }
+    fun removeFromPlaylist(context: Context, id: String, key: String) {
+        editPlaylists(context) { Playlists.removeTrack(it, id, key) }
     }
 
     /**
@@ -378,7 +378,9 @@ object SonoraBackend {
      * caller has to say so rather than leave a button that appears to work.
      */
     fun deleteDownload(context: Context, track: LibraryTrack): Boolean {
-        val file = track.file
+        // Nothing on disk to delete. The UI only offers this for a downloaded track, and returning
+        // false here keeps that promise true if it ever offers it for another kind by mistake.
+        val file = track.file ?: return false
         val location = MusicDirectory.resolve(context, _settings.value.downloadTreeUri)
 
         val inChosenFolder = location.tree != null &&
@@ -417,7 +419,7 @@ object SonoraBackend {
     }.getOrDefault(false)
 
     fun toggleLiked(context: Context, track: LibraryTrack) {
-        editPlaylists(context) { Playlists.toggleLiked(it, track.file.absolutePath) }
+        editPlaylists(context) { Playlists.toggleLiked(it, track.key) }
     }
 
     /**

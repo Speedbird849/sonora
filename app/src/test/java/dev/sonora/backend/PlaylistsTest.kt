@@ -5,7 +5,7 @@ import org.junit.Test
 
 class PlaylistsTest {
 
-    private val first = Playlist(id = "a", name = "First", trackPaths = listOf("/one.mp3"))
+    private val first = Playlist(id = "a", name = "First", trackKeys = listOf("/one.mp3"))
     private val second = Playlist(id = "b", name = "Second")
 
     @Test
@@ -51,76 +51,76 @@ class PlaylistsTest {
 
         assertEquals(playlists, Playlists.rename(playlists, id = "missing", name = "Nope"))
         assertEquals(playlists, Playlists.delete(playlists, id = "missing"))
-        assertEquals(playlists, Playlists.addTrack(playlists, id = "missing", path = "/x.mp3"))
-        assertEquals(playlists, Playlists.removeTrack(playlists, id = "missing", path = "/one.mp3"))
+        assertEquals(playlists, Playlists.addTrack(playlists, id = "missing", key = "/x.mp3"))
+        assertEquals(playlists, Playlists.removeTrack(playlists, id = "missing", key = "/one.mp3"))
     }
 
     @Test
     fun `addTrack appends in order`() {
-        val result = Playlists.addTrack(listOf(first), id = "a", path = "/two.mp3")
+        val result = Playlists.addTrack(listOf(first), id = "a", key = "/two.mp3")
 
-        assertEquals(listOf("/one.mp3", "/two.mp3"), result.single().trackPaths)
+        assertEquals(listOf("/one.mp3", "/two.mp3"), result.single().trackKeys)
     }
 
     @Test
     fun `addTrack ignores a track the playlist already holds`() {
         val playlists = listOf(first)
 
-        assertEquals(playlists, Playlists.addTrack(playlists, id = "a", path = "/one.mp3"))
+        assertEquals(playlists, Playlists.addTrack(playlists, id = "a", key = "/one.mp3"))
     }
 
     @Test
     fun `removeTrack drops the path and keeps the rest`() {
-        val playlist = Playlist(id = "a", name = "First", trackPaths = listOf("/one.mp3", "/two.mp3"))
+        val playlist = Playlist(id = "a", name = "First", trackKeys = listOf("/one.mp3", "/two.mp3"))
 
-        val result = Playlists.removeTrack(listOf(playlist), id = "a", path = "/one.mp3")
+        val result = Playlists.removeTrack(listOf(playlist), id = "a", key = "/one.mp3")
 
-        assertEquals(listOf("/two.mp3"), result.single().trackPaths)
+        assertEquals(listOf("/two.mp3"), result.single().trackKeys)
     }
 
     @Test
     fun `removeTrack leaves a playlist that does not hold the path alone`() {
         val playlists = listOf(first)
 
-        assertEquals(playlists, Playlists.removeTrack(playlists, id = "a", path = "/missing.mp3"))
+        assertEquals(playlists, Playlists.removeTrack(playlists, id = "a", key = "/missing.mp3"))
     }
 
     @Test
     fun `first like creates the liked list`() {
-        val result = Playlists.toggleLiked(listOf(first), path = "/one.mp3")
+        val result = Playlists.toggleLiked(listOf(first), key = "/one.mp3")
 
         val liked = result.single { it.id == Playlists.LIKED_ID }
         assertEquals(Playlists.LIKED_NAME, liked.name)
-        assertEquals(listOf("/one.mp3"), liked.trackPaths)
+        assertEquals(listOf("/one.mp3"), liked.trackKeys)
     }
 
     @Test
     fun `liking again removes the like and leaves the list standing`() {
         val liked = Playlist(Playlists.LIKED_ID, Playlists.LIKED_NAME, listOf("/one.mp3"))
 
-        val result = Playlists.toggleLiked(listOf(liked), path = "/one.mp3")
+        val result = Playlists.toggleLiked(listOf(liked), key = "/one.mp3")
 
-        assertEquals(emptyList<String>(), result.single { it.id == Playlists.LIKED_ID }.trackPaths)
+        assertEquals(emptyList<String>(), result.single { it.id == Playlists.LIKED_ID }.trackKeys)
     }
 
     @Test
     fun `toggling a like leaves the other playlists untouched`() {
-        val result = Playlists.toggleLiked(listOf(first, second), path = "/one.mp3")
+        val result = Playlists.toggleLiked(listOf(first, second), key = "/one.mp3")
 
         assertEquals(first, result.single { it.id == "a" })
         assertEquals(second, result.single { it.id == "b" })
     }
 
     @Test
-    fun `likedPaths is empty before anything is liked`() {
-        assertEquals(emptySet<String>(), Playlists.likedPaths(listOf(first, second)))
+    fun `likedKeys is empty before anything is liked`() {
+        assertEquals(emptySet<String>(), Playlists.likedKeys(listOf(first, second)))
     }
 
     @Test
-    fun `likedPaths reports what has been liked`() {
+    fun `likedKeys reports what has been liked`() {
         val liked = Playlist(Playlists.LIKED_ID, Playlists.LIKED_NAME, listOf("/one.mp3"))
 
-        assertEquals(setOf("/one.mp3"), Playlists.likedPaths(listOf(first, liked)))
+        assertEquals(setOf("/one.mp3"), Playlists.likedKeys(listOf(first, liked)))
     }
 
     @Test

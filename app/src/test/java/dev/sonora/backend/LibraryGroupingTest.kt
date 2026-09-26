@@ -35,7 +35,7 @@ class LibraryGroupingTest {
 
         assertEquals("Kid A", album.name)
         assertEquals("Radiohead", album.artist)
-        assertEquals(listOf("a.flac", "b.flac"), album.tracks.map { it.file.name })
+        assertEquals(listOf("a.flac", "b.flac"), album.tracks.map { it.file!!.name })
     }
 
     @Test

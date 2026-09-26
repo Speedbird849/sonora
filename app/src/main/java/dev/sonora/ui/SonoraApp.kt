@@ -145,7 +145,7 @@ fun SonoraApp() {
             var openAlbumName by remember { mutableStateOf<String?>(null) }
             val playback by SonoraPlayer.state.collectAsState()
             val playlists by SonoraBackend.playlists.collectAsState()
-            val likedPaths = remember(playlists) { Playlists.likedPaths(playlists) }
+            val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
 
             // Binds to the playback service once the app is in use, so the first tap on a track
             // is not waiting on a connection.
@@ -276,7 +276,7 @@ fun SonoraApp() {
                     BackHandler { playerOpen = false }
                     NowPlayingScreen(
                         onClose = { playerOpen = false },
-                        isLiked = playback.track?.let { it.file.absolutePath in likedPaths } == true,
+                        isLiked = playback.track?.let { it.key in likedKeys } == true,
                         onToggleLike = {
                             playback.track?.let { SonoraBackend.toggleLiked(context, it) }
                         },
@@ -394,7 +394,7 @@ private fun NowPlayingBar(onOpen: () -> Unit) {
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
-                    val artwork = rememberArtwork(track.file)
+                    val artwork = rememberTrackArtwork(track)
                     if (artwork != null) {
                         Image(
                             bitmap = artwork,

@@ -226,7 +226,7 @@ internal fun TrackListRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tile {
-            val artwork = rememberArtwork(track.file)
+            val artwork = rememberTrackArtwork(track)
             if (artwork != null) {
                 Image(
                     bitmap = artwork,

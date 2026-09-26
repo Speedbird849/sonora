@@ -20,7 +20,7 @@ class PlaylistStoreTest {
             Playlist(
                 id = "a",
                 name = "Late night",
-                trackPaths = listOf("/music/one.mp3", "/music/two.flac"),
+                trackKeys = listOf("/music/one.mp3", "/music/two.flac"),
             ),
             Playlist(id = "b", name = "Empty"),
         )

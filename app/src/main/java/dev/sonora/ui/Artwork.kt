@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.SonoraBackend
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -30,6 +31,57 @@ private val artworkCache = ConcurrentHashMap<String, ImageBitmap?>()
 
 /** Catalogue covers, held the same way and for the same reason: the row re-composes as it scrolls. */
 private val coverArtCache = ConcurrentHashMap<String, ImageBitmap?>()
+
+/** Remote artwork, keyed by URL. Same reasoning as the two above. */
+private val remoteArtworkCache = ConcurrentHashMap<String, ImageBitmap?>()
+
+/**
+ * Cover art for any library track, whether it is on the device or not.
+ *
+ * A downloaded track has its art embedded in the file; a YouTube Music one has a URL and no file, so
+ * it is fetched instead. Both go through [rememberArtwork] or a single decode-and-cache, and neither
+ * blocks composition — a row with no art yet shows the placeholder rather than flashing one and
+ * replacing it.
+ */
+@Composable
+fun rememberTrackArtwork(track: LibraryTrack): ImageBitmap? {
+    val remote = track.remote
+    if (remote == null) {
+        val file = track.file ?: return null
+        return rememberArtwork(file)
+    }
+
+    val url = remote.artworkUrl ?: return null
+    var artwork by remember(url) { mutableStateOf(remoteArtworkCache[url]) }
+
+    LaunchedEffect(url) {
+        if (remoteArtworkCache.containsKey(url)) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) { fetchRemoteArtwork(url) }
+        remoteArtworkCache[url] = loaded
+        artwork = loaded
+    }
+
+    return artwork
+}
+
+/**
+ * Downloads and decodes one piece of remote artwork.
+ *
+ * Decoded down to the same size as [decodeArtwork] produces, so a remote row and a downloaded one
+ * are the same visual weight in a list. A URL that fails is remembered as absent rather than
+ * retried on every recomposition, which is what an unbounded cache of misses would otherwise cause.
+ */
+private fun fetchRemoteArtwork(url: String): ImageBitmap? {
+    val request = okhttp3.Request.Builder().url(url).build()
+    return runCatching {
+        dev.sonora.ytm.YtmHttp.client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val bytes = response.body?.bytes() ?: return@use null
+            val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+        }
+    }.getOrNull()
+}
 
 @Composable
 fun rememberArtwork(file: File): ImageBitmap? {

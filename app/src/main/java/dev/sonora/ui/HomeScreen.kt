@@ -80,9 +80,9 @@ fun HomeScreen(onRunSearch: (String) -> Unit, onOpenPlaylist: (String) -> Unit) 
 
     // Resolved against the library rather than remembered as tracks: the filesystem is the library,
     // so a file that has since been deleted drops out and the rest are current.
-    val byPath = remember(tracks) { tracks.associateBy { it.file.absolutePath } }
-    val recentTracks = remember(playHistory, byPath) {
-        playHistory.mapNotNull { byPath[it.path] }
+    val byKey = remember(tracks) { tracks.associateBy { it.key } }
+    val recentTracks = remember(playHistory, byKey) {
+        playHistory.mapNotNull { byKey[it.key] }
     }
 
     // Liked Songs is a playlist like any other, so it is pinned first rather than shown twice.
@@ -140,7 +140,7 @@ fun HomeScreen(onRunSearch: (String) -> Unit, onOpenPlaylist: (String) -> Unit) 
             item {
                 PlaylistsRow(
                     playlists = orderedPlaylists,
-                    byPath = tracks,
+                    byKey = tracks,
                     onOpen = onOpenPlaylist,
                 )
             }
@@ -163,9 +163,9 @@ private fun RecentlyPlayedRow(tracks: List<LibraryTrack>) {
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(tracks, key = { _, track -> track.file.absolutePath }) { index, track ->
+            itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->
                 MediaCard(
-                    artwork = rememberArtwork(track.file),
+                    artwork = rememberTrackArtwork(track),
                     title = track.title,
                     subtitle = listOfNotNull(track.artist, track.album).joinToString("  \u00b7  "),
                     shape = RoundedCornerShape(8.dp),
@@ -211,10 +211,10 @@ private fun Section(
 @Composable
 private fun PlaylistsRow(
     playlists: List<Playlist>,
-    byPath: List<LibraryTrack>,
+    byKey: List<LibraryTrack>,
     onOpen: (String) -> Unit,
 ) {
-    val paths = remember(byPath) { byPath.mapTo(HashSet()) { it.file.absolutePath } }
+    val keys = remember(byKey) { byKey.mapTo(HashSet()) { it.key } }
 
     Column {
         SectionHeader(title = "Your playlists", subtitle = "Collections you have made")
@@ -231,7 +231,7 @@ private fun PlaylistsRow(
                     icon = if (liked) Icons.Filled.Favorite else Icons.AutoMirrored.Filled.QueueMusic,
                     title = playlist.name,
                     subtitle = run {
-                        val count = playlist.trackPaths.count { it in paths }
+                        val count = playlist.trackKeys.count { it in keys }
                         if (count == 1) "1 track" else "$count tracks"
                     },
                     shape = if (liked) CircleShape else RoundedCornerShape(8.dp),

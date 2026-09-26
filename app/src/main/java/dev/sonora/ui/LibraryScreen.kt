@@ -105,8 +105,8 @@ fun LibraryScreen(
 
     // Resolved once here: the library scan is what decides whether a stored path still exists, and
     // a playlist should report and play what is actually there.
-    val byPath = remember(tracks) { tracks.associateBy { it.file.absolutePath } }
-    val likedPaths = remember(playlists) { Playlists.likedPaths(playlists) }
+    val byKey = remember(tracks) { tracks.associateBy { it.key } }
+    val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
     val albums = remember(tracks) { LibraryGrouping.albums(tracks) }
     val artists = remember(tracks) { LibraryGrouping.artists(tracks) }
     val missingAlbums by SonoraBackend.missingAlbums.collectAsState()
@@ -168,7 +168,7 @@ fun LibraryScreen(
     }
 
     if (open != null) {
-        val contents = open.trackPaths.mapNotNull { byPath[it] }
+        val contents = open.trackKeys.mapNotNull { byKey[it] }
 
         BackHandler { onClosePlaylist() }
         PlaylistDetailScreen(
@@ -177,7 +177,7 @@ fun LibraryScreen(
             onBack = { onClosePlaylist() },
             onPlayFrom = { index -> SonoraPlayer.play(context, contents, index) },
             onRemove = { track ->
-                SonoraBackend.removeFromPlaylist(context, open.id, track.file.absolutePath)
+                SonoraBackend.removeFromPlaylist(context, open.id, track.key)
             },
             onRename = { name -> SonoraBackend.renamePlaylist(context, open.id, name) },
             onDelete = {
@@ -233,7 +233,7 @@ fun LibraryScreen(
                     tracks = tracks,
                     playback = playback,
                     context = context,
-                    likedPaths = likedPaths,
+                    likedKeys = likedKeys,
                     downloadDirectory = downloadDirectory,
                     onToggleLike = { SonoraBackend.toggleLiked(context, it) },
                     onAddToPlaylist = { addTarget = it },
@@ -252,7 +252,7 @@ fun LibraryScreen(
 
                 LibrarySection.Playlists -> PlaylistsSection(
                     playlists = playlists,
-                    byPath = byPath,
+                    byKey = byKey,
                     onCreate = { creating = true },
                     onOpen = { onOpenPlaylist(it.id) },
                 )
@@ -339,7 +339,7 @@ private fun TracksSection(
     tracks: List<LibraryTrack>,
     playback: PlaybackState,
     context: Context,
-    likedPaths: Set<String>,
+    likedKeys: Set<String>,
     downloadDirectory: String,
     onToggleLike: (LibraryTrack) -> Unit,
     onAddToPlaylist: (LibraryTrack) -> Unit,
@@ -367,12 +367,12 @@ private fun TracksSection(
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            itemsIndexed(tracks, key = { _, track -> track.file.absolutePath }) { index, track ->
+            itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->
                 TrackRow(
                     track = track,
                     isPlaying = playback.isPlaying && playback.track?.file == track.file,
-                    isLiked = track.file.absolutePath in likedPaths,
-                    canDelete = track.file.parentFile?.absolutePath == downloadDirectory,
+                    isLiked = track.key in likedKeys,
+                    canDelete = track.file?.parentFile?.absolutePath == downloadDirectory,
                     onPlay = { SonoraPlayer.play(context, tracks, index) },
                     onToggleLike = { onToggleLike(track) },
                     onAddToPlaylist = { onAddToPlaylist(track) },
@@ -462,7 +462,7 @@ private fun ArtistsSection(
 @Composable
 private fun PlaylistsSection(
     playlists: List<Playlist>,
-    byPath: Map<String, LibraryTrack>,
+    byKey: Map<String, LibraryTrack>,
     onCreate: () -> Unit,
     onOpen: (Playlist) -> Unit,
 ) {
@@ -483,7 +483,7 @@ private fun PlaylistsSection(
         items(all, key = { it.id }) { playlist ->
             PlaylistRow(
                 playlist = playlist,
-                trackCount = playlist.trackPaths.count { it in byPath },
+                trackCount = playlist.trackKeys.count { it in byKey },
                 reserved = playlist.id == Playlists.LIKED_ID,
                 onClick = { onOpen(playlist) },
             )

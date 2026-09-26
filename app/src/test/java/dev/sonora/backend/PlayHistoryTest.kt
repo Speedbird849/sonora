@@ -14,7 +14,7 @@ class PlayHistoryTest {
 
         assertEquals(
             listOf("/music/third.flac", "/music/second.flac"),
-            history.map { it.path },
+            history.map { it.key },
         )
     }
 
@@ -27,13 +27,13 @@ class PlayHistoryTest {
 
     @Test
     fun `playing a track again moves it to the front rather than duplicating it`() {
-        val history = PlayHistory.record(listOf(second, first), first.path, at = 3_000L)
+        val history = PlayHistory.record(listOf(second, first), first.key, at = 3_000L)
 
-        assertEquals(listOf(first.path, second.path), history.map { it.path })
+        assertEquals(listOf(first.key, second.key), history.map { it.key })
     }
 
     @Test
-    fun `a track with no path is not recorded`() {
+    fun `a track with no key is not recorded`() {
         val history = listOf(first)
 
         assertEquals(history, PlayHistory.record(history, "  ", at = 3_000L))
@@ -46,8 +46,8 @@ class PlayHistoryTest {
         val recorded = PlayHistory.record(history, "/music/newest.flac", at = 9_000L)
 
         assertEquals(PlayHistory.MAX, recorded.size)
-        assertEquals("/music/newest.flac", recorded.first().path)
+        assertEquals("/music/newest.flac", recorded.first().key)
         // The oldest entry is the one pushed out.
-        assertEquals("/music/${PlayHistory.MAX - 1}.flac", recorded.last().path)
+        assertEquals("/music/${PlayHistory.MAX - 1}.flac", recorded.last().key)
     }
 }

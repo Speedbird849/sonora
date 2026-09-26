@@ -49,9 +49,15 @@ object YtmSearch {
     private const val ENDPOINT = "https://music.youtube.com/youtubei/v1/search"
 
     /**
-     * YouTube's own published web key. It is not a secret and not an account: it identifies the
-     * client, and the request it is allowed to make is bounded by what that client may see, which
-     * for this one is public data.
+     * YouTube's own published web-client key — the same constant that appears in yt-dlp, NewPipe and
+     * the web player itself. It identifies the calling client, not an account, and carries no access
+     * to anyone's data; a scanner flagging it is a true positive about the string and a false
+     * positive about the risk.
+     *
+     * Kept rather than dropped because search answers without it too, which was verified, but only
+     * for a single request: whether the keyless path is metered more tightly was *not* established,
+     * and a catalogue that starts refusing searches under load is a worse failure than a
+     * permanently recurring scanner warning.
      */
     private const val KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
 

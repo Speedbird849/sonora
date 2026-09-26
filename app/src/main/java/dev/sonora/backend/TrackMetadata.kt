@@ -55,7 +55,15 @@ object AudioQuality {
     private val LOSSLESS_EXTENSIONS = setOf("flac", "wav", "alac", "aif", "aiff", "ape", "wv")
     private val cache = ConcurrentHashMap<String, String>()
 
-    fun from(file: File, durationMs: Long = 0L): String {
+    /**
+     * A short description of a file's audio, or an empty string for one there is no file for.
+     *
+     * A streaming track has no file to inspect, so it has no codec to name. Blank rather than a
+     * placeholder: the player draws this only when it is non-blank, and a line reading "stream" where
+     * every other row reads "FLAC 24/96" would be claiming a fact nobody has.
+     */
+    fun from(file: File?, durationMs: Long = 0L): String {
+        if (file == null) return ""
         val key = "${file.absolutePath}:${file.length()}:${file.lastModified()}"
         return cache.getOrPut(key) { resolve(file, durationMs) }
     }

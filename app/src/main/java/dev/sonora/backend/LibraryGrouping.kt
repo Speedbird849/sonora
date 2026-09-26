@@ -30,7 +30,7 @@ object LibraryGrouping {
                     artist = sharedArtist(group),
                     // Track numbers are not in the tags being read, so filename order is the closest
                     // available approximation of the album's own order.
-                    tracks = group.sortedBy { it.file.name.lowercase() },
+                    tracks = group.sortedBy { sortKey(it) },
                 )
             }
             .sortedBy { it.name.lowercase() }
@@ -49,8 +49,27 @@ object LibraryGrouping {
      */
     fun recentAlbums(tracks: List<LibraryTrack>, limit: Int): List<Album> =
         albums(tracks)
-            .sortedByDescending { album -> album.tracks.maxOf { it.file.lastModified() } }
+            .sortedByDescending { album -> album.tracks.maxOf { arrivedAt(it) } }
             .take(limit)
+
+    /**
+     * What an album's tracks are ordered by.
+     *
+     * Filename order for a downloaded track, and title for a streaming one, which has no file to
+     * read. Mixed albums are then ordered by whichever each row happens to have, which is the same
+     * approximation the file-only version was already making from untagged rips.
+     */
+    private fun sortKey(track: LibraryTrack): String =
+        track.file?.name?.lowercase() ?: track.title.lowercase()
+
+    /**
+     * When a track arrived, for "recently added" ordering.
+     *
+     * A streaming track has no file and therefore no timestamp, so it is treated as arriving now:
+     * it was just added to the library, which is what the ordering is asking.
+     */
+    private fun arrivedAt(track: LibraryTrack): Long =
+        track.file?.lastModified() ?: System.currentTimeMillis()
 
     private fun sharedArtist(tracks: List<LibraryTrack>): String {
         val artists = tracks.map { it.artist.orUnknown(UNKNOWN_ARTIST) }.distinct()

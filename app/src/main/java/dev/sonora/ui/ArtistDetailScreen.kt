@@ -89,7 +89,7 @@ fun ArtistDetailScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                val artwork = artist.tracks.firstOrNull()?.let { rememberArtwork(it.file) }
+                val artwork = artist.tracks.firstOrNull()?.let { rememberTrackArtwork(it) }
                 if (artwork != null) {
                     Image(
                         bitmap = artwork,
@@ -199,7 +199,7 @@ fun ArtistDetailScreen(
                 }
             }
 
-            itemsIndexed(artist.tracks, key = { _, track -> track.file.absolutePath }) { index, track ->
+            itemsIndexed(artist.tracks, key = { _, track -> track.key }) { index, track ->
                 TrackListRow(
                     track = track,
                     meta = listOfNotNull(track.album, track.artist).joinToString("  \u00b7  "),
