@@ -30,6 +30,10 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "0.2.0"
+
+        // Needed by the device tests that check YouTube will actually serve audio,
+        // which cannot be answered from a JVM fixture.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -119,4 +123,6 @@ dependencies {
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }
