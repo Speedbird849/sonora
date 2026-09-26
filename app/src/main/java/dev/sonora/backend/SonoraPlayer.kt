@@ -10,6 +10,12 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dev.sonora.playback.PlaybackService
+import dev.sonora.ytm.YtmAudio
+import dev.sonora.ytm.YtmStream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +46,11 @@ object SonoraPlayer {
 
     /** Mirrors the local queue because the service exposes media items, not LibraryTrack values. */
     private var queue: List<LibraryTrack> = emptyList()
+
+    /** Resolved streams, by track key. A YouTube URL expires, so this is a cache and not a store. */
+    private val resolved = HashMap<String, YtmAudio>()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
      * Called whenever a track begins, whoever started it.
@@ -194,14 +205,85 @@ object SonoraPlayer {
         }
     }
 
+    /**
+     * Hands the queue to the player, resolving anything that is not a file first.
+     *
+     * A streaming track has no file to open, so its audio has to be asked for before Media3 can be
+     * given anything. That is a network round trip per track, so it happens here — once, up front —
+     * rather than inside the player, which would stall the queue on the first track that needs it.
+     *
+     * A track that will not resolve is dropped from the queue rather than added as something that
+     * cannot play. The alternative is a silent gap in the middle of an album, and a queue that skips
+     * a track is a far smaller failure than one that appears to hang on it.
+     */
     private fun playNow(active: MediaController, tracks: List<LibraryTrack>, startIndex: Int) {
-        queue = tracks
-        val mediaItems = tracks.map { MediaItem.fromUri(Uri.fromFile(it.file)) }
-        active.setMediaItems(mediaItems, startIndex, 0L)
-        active.prepare()
-        active.play()
-        updateTrack(active, startIndex)
+        val playable = tracks.filter { it.isDownloaded || it.isRemote }
+        if (playable.isEmpty()) return
+
+        scope.launch {
+            val mediaItems = playable.mapNotNull { track ->
+                itemFor(track)?.let { track to it }
+            }.toMap()
+
+            val items = mediaItems.keys.mapNotNull { mediaItems[it] }
+            if (items.isEmpty()) {
+                Log.w(TAG, "nothing in the queue could be resolved")
+                return@launch
+            }
+
+            // The index the caller asked for may have been dropped along with an unresolvable
+            // track, so it is re-found by identity rather than reused as a position.
+            val index = playable.indexOfFirst { it.key == tracks.getOrNull(startIndex)?.key }
+                .takeIf { it >= 0 && mediaItems.containsKey(playable[it]) }
+                ?: 0
+
+            queue = playable
+            active.setMediaItems(items, index.coerceIn(0, items.lastIndex), 0L)
+            active.prepare()
+            active.play()
+            updateTrack(active, index.coerceIn(0, items.lastIndex))
+        }
     }
+
+    /**
+     * A media item for one track: the file itself, or a resolved stream with the headers its fetch
+     * has to carry.
+     */
+    private suspend fun itemFor(track: LibraryTrack): MediaItem? {
+        track.file?.let { return MediaItem.fromUri(Uri.fromFile(it)) }
+
+        val audio = resolved[track.key] ?: resolve(track) ?: return null
+        return MediaItem.Builder()
+            .setUri(audio.url)
+            .setMediaId(track.key)
+            .setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .build(),
+            )
+            .build()
+    }
+
+    /**
+     * Turns a video id into a stream, reusing one already resolved this session.
+     *
+     * The cache is bounded and dropped wholesale when it is full rather than evicted one at a time:
+     * a YouTube URL is good for about an hour, so anything cached from long ago is dead anyway and
+     * there is nothing worth ordering by age.
+     */
+    private suspend fun resolve(track: LibraryTrack): YtmAudio? {
+        val videoId = track.remote?.videoId ?: return null
+        if (resolved.size >= MAX_RESOLVED) resolved.clear()
+
+        return runCatching { YtmStream.resolve(videoId) }
+            .onFailure { Log.w(TAG, "could not resolve ${track.title}: ${it.message}") }
+            .getOrNull()
+            ?.also { resolved[track.key] = it }
+    }
+
+
 
     private fun updateTrack(active: MediaController, index: Int = active.currentMediaItemIndex) {
         val track = queue.getOrNull(index) ?: return
@@ -249,4 +331,6 @@ object SonoraPlayer {
             }
         }
     }
+
+    private const val MAX_RESOLVED = 32
 }
