@@ -25,6 +25,15 @@ data class YtmTrack(
     val album: String? = null,
     val albumId: String? = null,
     val artworkUrl: String? = null,
+    /**
+     * Runtime in whole seconds.
+     *
+     * Read out of the credit column, where YouTube prints it after the album as a plain "M:SS" with
+     * no link on it — which is what tells it apart from the artist and album around it, and the
+     * only place a search response states a length at all. Null when the shape does not carry one,
+     * which is the normal case for a continuation page.
+     */
+    val durationSec: Int? = null,
 )
 
 /**
@@ -204,6 +213,10 @@ object YtmSearch {
         val albumRun = credits.firstOrNull { it.pageType == "MUSIC_PAGE_TYPE_ALBUM" }
         if (artistRun == null || artistRun.text.isBlank()) return null
 
+        // The unlinked run that parses as a runtime, and nothing else: the separators between the
+        // credits are unlinked too, and neither " • " nor a year is going to parse as "M:SS".
+        val runtime = credits.firstOrNull { it.pageType == null && it.text.secondsOrNull() != null }
+
         return YtmTrack(
             videoId = videoId,
             title = title.trim(),
@@ -214,6 +227,7 @@ object YtmSearch {
             artworkUrl = row.descend(
                 "thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails",
             ).arr().mapNotNull { it.obj()?.get("url").str() }.lastOrNull(),
+            durationSec = runtime?.text?.secondsOrNull(),
         )
     }
 
@@ -265,4 +279,23 @@ object YtmSearch {
     private fun JsonElement?.arr(): List<JsonElement> = (this as? JsonArray).orEmpty()
 
     private fun JsonElement?.str(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    /**
+     * "3:48" as 228 seconds, or null when the text is not a runtime.
+     *
+     * Null rather than zero for a parse failure, because a zero would be read as an instant track
+     * and compared against — see the importer's duration check, where an absent length is a
+     * "cannot tell" and a zero is a confident wrong answer.
+     */
+    private fun String.secondsOrNull(): Int? {
+        val parts = trim().split(':')
+        if (parts.size !in 2..3) return null
+        val numbers = parts.map { it.toIntOrNull() ?: return null }
+        return when (numbers.size) {
+            2 -> numbers[0] * 60 + numbers[1]
+            // Hours appear only on a live stream, which is not something to import.
+            3 -> if (numbers[0] == 0) numbers[1] * 60 + numbers[2] else null
+            else -> null
+        }
+    }
 }
