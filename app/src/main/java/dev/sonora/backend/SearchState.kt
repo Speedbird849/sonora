@@ -1,6 +1,7 @@
 package dev.sonora.backend
 
 import dev.sonora.protocol.peer.FileAttributes
+import dev.sonora.ytm.YtmTrack
 
 /** How results are ordered. */
 enum class SortMode(val label: String) {
@@ -19,6 +20,7 @@ enum class SortMode(val label: String) {
  * depends entirely on what is being looked for, so the search screen can show either or both.
  */
 enum class SearchSource(val label: String) {
+    YOUTUBE_MUSIC("YouTube"),
     CATALOGUE("Catalogue"),
     SOULSEEK("Soulseek"),
 }
@@ -46,6 +48,15 @@ data class SearchState(
      * Ordered by [sort]. Capped, because a broad query can match hundreds of thousands of files.
      */
     val hits: List<SearchHit> = emptyList(),
+    /**
+     * YouTube Music's answer, held apart from [hits] because it is a different kind of thing: a
+     * stream that plays now rather than a file on a stranger's disk. It also arrives in one request
+     * rather than streaming, so folding it in would mean a list that reflows as the two arrive at
+     * their own speeds.
+     */
+    val youtube: List<YtmTrack> = emptyList(),
+    /** True until YouTube Music has answered, so the screen can say so rather than show nothing. */
+    val youtubeLoading: Boolean = false,
     /** Everything matched, including what [hits] dropped, so the UI can say "showing X of Y". */
     val matched: Int = 0,
     /** Distinct peers contributing results — the redundancy available for any one track. */

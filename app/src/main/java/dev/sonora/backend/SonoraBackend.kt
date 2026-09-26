@@ -19,6 +19,7 @@ import dev.sonora.protocol.DownloadOutcome
 import dev.sonora.protocol.SoulseekSession
 import dev.sonora.protocol.server.LoginResponse
 import dev.sonora.service.SonoraService
+import dev.sonora.ytm.YtmSearch
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -720,15 +721,25 @@ object SonoraBackend {
      * marked not-searching after a fixed window while late results keep being appended.
      */
     fun search(context: Context, query: String) {
-        val current = session ?: return
-        if (query.isBlank()) return
+        val term = query.trim()
+        if (term.isEmpty()) return
 
-        val tokens = query.lowercase().split(WHITESPACE).filter { it.isNotEmpty() }
+        loadYoutube(term)
+
+        val current = session
+        if (current == null) {
+            // Nothing to ask the network, so the catalogue answers on its own. A search that
+            // returned nothing at all because the session is down would read as "no such music".
+            _search.value = SearchState(query = term, searching = false, youtubeLoading = true)
+            return
+        }
+
+        val tokens = term.lowercase().split(WHITESPACE).filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return
 
         val peersSeen = ConcurrentHashMap.newKeySet<String>()
 
-        _search.value = SearchState(query = query, searching = true)
+        _search.value = SearchState(query = query, searching = true, youtubeLoading = true)
         Log.d(TAG, "searching: $query")
 
         recordSearch(context, query)
@@ -774,6 +785,27 @@ object SonoraBackend {
 
             delay(SEARCH_WINDOW_MS)
             _search.update { if (it.query == query) it.copy(searching = false) else it }
+        }
+    }
+
+    /**
+     * Asks YouTube Music, and publishes the answer.
+     *
+     * Dropped when a newer search has started, for the same reason the Soulseek results are: an
+     * answer that arrives late belongs to a query the user has already moved on from, and showing it
+     * under the new one is worse than showing nothing.
+     *
+     * Not gated on the Soulseek session. This is a public catalogue over plain HTTP and has nothing
+     * to do with the network, so a listener who is not connected still gets results — which is the
+     * point of it being a separate source rather than a filter on the peer search.
+     */
+    private fun loadYoutube(query: String) {
+        scope.launch {
+            val tracks = YtmSearch.search(query)
+            Log.d(TAG, "youtube: ${tracks.size} track(s) for $query")
+            if (_search.value.query == query) {
+                _search.update { it.copy(youtube = tracks, youtubeLoading = false) }
+            }
         }
     }
 
