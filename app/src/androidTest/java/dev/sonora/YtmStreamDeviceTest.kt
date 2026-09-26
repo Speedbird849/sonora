@@ -37,9 +37,10 @@ class YtmStreamDeviceTest {
             .apply { audio.headers.forEach { (k, v) -> header(k, v) } }
             .header("Range", "bytes=0-65535")
             .build()
-        YtmHttpProbe.get(request) { code, bytes, type ->
-            println("FETCH http=$code bytes=$bytes type=$type")
-            assertTrue("media fetch refused: $code", code in 200..299)
+        dev.sonora.ytm.YtmHttp.client.newCall(request).execute().use { response ->
+            val bytes = response.body?.bytes()?.size?.toLong() ?: 0L
+            println("FETCH http=${response.code} bytes=$bytes type=${response.header("Content-Type")}")
+            assertTrue("media fetch refused: ${response.code}", response.isSuccessful)
             assertTrue("no bytes came back", bytes > 0)
         }
     }

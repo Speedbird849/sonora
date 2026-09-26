@@ -17,12 +17,6 @@ import com.metrolist.innertubex.extraction.TokenProviderCapabilities
 import com.metrolist.innertubex.extraction.YtConfigParserImpl
 import com.metrolist.innertubex.extraction.generateClientPlaybackNonce
 import com.metrolist.innertubex.models.YouTubeLocale
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.json.Json
 import java.util.concurrent.ConcurrentHashMap
 
 /** A playable audio stream for one YouTube Music track, and what its fetch has to carry. */
@@ -75,18 +69,7 @@ object YtmStream {
         if (event.level == InnerTubeLogLevel.INFO) Log.d(TAG, line) else Log.w(TAG, line)
     }
 
-    private val http = HttpClient(OkHttp) {
-        engine { preconfigured = YtmHttp.client }
-        install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true })
-        }
-        install(HttpTimeout) {
-            requestTimeoutMillis = 30_000
-            connectTimeoutMillis = 15_000
-            socketTimeoutMillis = 20_000
-        }
-        expectSuccess = false
-    }
+    private val http = YtmHttp.ktor
 
     /**
      * No proof-of-origin token.

@@ -1,5 +1,11 @@
 package dev.sonora.ytm
 
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -25,4 +31,24 @@ object YtmHttp {
         .dispatcher(Dispatcher().apply { maxRequestsPerHost = 16 })
         .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
         .build()
+
+    /**
+     * Ktor over the same client, for the calls InnerTubeX makes for itself.
+     *
+     * Not a second HTTP stack: [engine] hands it the pool above, so a stream URL
+     * resolved through this is fetched over a connection from the same context
+     * that minted it.
+     */
+    val ktor: HttpClient = HttpClient(OkHttp) {
+        engine { preconfigured = client }
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true })
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 30_000
+            connectTimeoutMillis = 15_000
+            socketTimeoutMillis = 20_000
+        }
+        expectSuccess = false
+    }
 }
