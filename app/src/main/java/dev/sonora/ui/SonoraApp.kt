@@ -157,6 +157,7 @@ fun SonoraApp() {
             LaunchedEffect(Unit) { SonoraBackend.refreshSettings(context) }
             LaunchedEffect(Unit) { SonoraBackend.refreshSearchHistory(context) }
             LaunchedEffect(Unit) { SonoraBackend.refreshPlayHistory(context) }
+            LaunchedEffect(Unit) { SonoraBackend.refreshSaved(context) }
 
             LaunchedEffect(playback.track, playback.isPlaying) {
                 while (playback.track != null) {

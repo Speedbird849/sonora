@@ -20,6 +20,7 @@ import dev.sonora.protocol.SoulseekSession
 import dev.sonora.protocol.server.LoginResponse
 import dev.sonora.service.SonoraService
 import dev.sonora.ytm.YtmSearch
+import dev.sonora.ytm.YtmTrack
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -67,6 +68,7 @@ object SonoraBackend {
     private val UNSAFE_FILENAME = Regex("[^A-Za-z0-9 ._()\\[\\]&'-]")
 
     private const val PLAYLISTS_FILE = "playlists.json"
+    private const val SAVED_TRACKS_FILE = "saved-tracks.json"
     private const val SETTINGS_FILE = "settings.json"
     private const val SEARCH_HISTORY_FILE = "searches.json"
     private const val PLAY_HISTORY_FILE = "plays.json"
@@ -107,6 +109,17 @@ object SonoraBackend {
     private val _library = MutableStateFlow<List<LibraryTrack>>(emptyList())
 
     val library: StateFlow<List<LibraryTrack>> = _library.asStateFlow()
+
+    /**
+     * YouTube Music tracks that have been kept but not downloaded.
+     *
+     * Held apart from [library] so a save does not have to wait for a filesystem scan, and so the
+     * scan can be re-run without losing them: the folder is the truth about what is on the device,
+     * and this is the truth about what has been kept.
+     */
+    private val _saved = MutableStateFlow<List<SavedTrack>>(emptyList())
+
+    val saved: StateFlow<List<SavedTrack>> = _saved.asStateFlow()
 
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
 
@@ -197,7 +210,9 @@ object SonoraBackend {
                     (_settings.value.includeDeviceMusic || track.key.startsWith(root))
             }
 
-            val library = (downloaded + fromProvider).sortedBy { it.title.lowercase() }
+            val library = (downloaded + fromProvider)
+                .withSaved(_saved.value)
+                .sortedBy { it.title.lowercase() }
             _library.value = library
 
             Log.d(
@@ -359,7 +374,52 @@ object SonoraBackend {
     }
 
     fun addToPlaylist(context: Context, id: String, track: LibraryTrack) {
+        // A streaming track is also kept: a playlist entry for something the library has never heard
+        // of would resolve to nothing on the next launch, because there is no file behind it.
+        track.remote?.let { save(context, it) }
         editPlaylists(context) { Playlists.addTrack(it, id, track.key) }
+    }
+
+    /**
+     * Keeps a YouTube Music track in the library without downloading it.
+     *
+     * Re-saving a track that is already kept updates its metadata in place rather than adding a
+     * second row, so a search that found the same recording twice leaves one track, not two that
+     * play the same audio over each other.
+     */
+    fun save(context: Context, track: YtmTrack) {
+        scope.launch {
+            val updated = _saved.value
+                .filterNot { it.videoId == track.videoId }
+                .plus(SavedTrack(
+                    videoId = track.videoId,
+                    title = track.title,
+                    artist = track.artist,
+                    album = track.album,
+                    artworkUrl = track.artworkUrl,
+                ))
+
+            savedTrackStore(context).save(updated)
+            _saved.value = updated
+            refreshLibrary(context)
+        }
+    }
+
+    /** Forgets a kept track that has not been downloaded. */
+    fun unsave(context: Context, track: LibraryTrack) {
+        val videoId = track.remote?.videoId ?: return
+        scope.launch {
+            val updated = _saved.value.filterNot { it.videoId == videoId }
+            if (updated == _saved.value) return@launch
+
+            savedTrackStore(context).save(updated)
+            _saved.value = updated
+            refreshLibrary(context)
+        }
+    }
+
+    fun refreshSaved(context: Context) {
+        scope.launch { _saved.value = savedTrackStore(context).load() }
     }
 
     fun removeFromPlaylist(context: Context, id: String, key: String) {
@@ -440,6 +500,9 @@ object SonoraBackend {
     }
 
     private fun store(context: Context) = PlaylistStore(File(context.filesDir, PLAYLISTS_FILE))
+
+    private fun savedTrackStore(context: Context) =
+        SavedTrackStore(File(context.filesDir, SAVED_TRACKS_FILE))
 
     private fun settingsStore(context: Context) =
         SettingsStore(File(context.filesDir, SETTINGS_FILE))
