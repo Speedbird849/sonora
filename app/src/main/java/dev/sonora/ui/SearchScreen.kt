@@ -434,6 +434,10 @@ internal fun statusNote(
 
         !anyResults -> "No results for \u201c${state.query}\u201d."
 
+        // Catalogue rows are showing but neither playable source answered, so there is nothing to
+        // count. Saying "0 on YouTube Music" over them would read as a result, not an absence.
+        state.hits.isEmpty() && youtubeCount == 0 -> null
+
         showSoulseek && state.hits.isNotEmpty() && showYoutube -> "$youtubeLine \u00b7 $peerLine"
 
         showSoulseek && state.hits.isNotEmpty() -> peerLine

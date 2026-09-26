@@ -3,6 +3,7 @@ package dev.sonora.ui
 import dev.sonora.backend.SearchHit
 import dev.sonora.backend.SearchState
 import dev.sonora.protocol.peer.FileAttributes
+import dev.sonora.ytm.YtmTrack
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -10,51 +11,85 @@ import org.junit.Test
 /**
  * The line under the search controls.
  *
- * Worth testing because it is the one place the screen can contradict itself: the results are two
- * independent sources, and a line about one of them sitting above the other reads as wrong.
+ * Worth testing because it is the one place the screen can contradict itself: the results are three
+ * independent sources answering at different speeds, and a line about one of them sitting above the
+ * others reads as wrong.
  */
 class SearchStatusTest {
 
     @Test
     fun `nothing is said before anything has been searched for`() {
-        assertNull(statusNote(SearchState(), showSoulseek = true, catalogueShown = false))
+        assertNull(note(SearchState(), showSoulseek = true, showYoutube = true))
     }
 
     @Test
-    fun `matches are counted while the search is still running`() {
-        val state = SearchState(query = "kid a", searching = true, matched = 12)
+    fun `no counts are given while a source is still outstanding`() {
+        val state = SearchState(query = "kid a", searching = true, matched = 12, youtube = listOf(track()))
 
-        assertEquals("Searching\u2026 12 match(es) so far", statusNote(state, true, false))
+        // Half the numbers would be final and half provisional, which reads as a total.
+        assertEquals("Searching…", note(state))
+    }
+
+    @Test
+    fun `YouTube alone is still waiting, so the line says so`() {
+        val state = SearchState(query = "kid a", hits = listOf(hit()), youtubeLoading = true)
+
+        assertEquals("Searching…", note(state))
     }
 
     @Test
     fun `no results is not said over a row of catalogue matches`() {
-        val state = SearchState(query = "kid a")
-
-        assertNull(statusNote(state, showSoulseek = true, catalogueShown = true))
+        assertNull(note(SearchState(query = "kid a"), catalogueShown = true))
     }
 
     @Test
     fun `no results is said when nothing came back from anywhere`() {
-        val state = SearchState(query = "kid a")
+        assertEquals("No results for “kid a”.", note(SearchState(query = "kid a")))
+    }
 
-        assertEquals("No results for \u201ckid a\u201d.", statusNote(state, true, false))
+    @Test
+    fun `both sources are counted when both answered`() {
+        val state = SearchState(
+            query = "kid a",
+            youtube = listOf(track(), track("other")),
+            hits = listOf(hit()),
+            matched = 3,
+            peers = 2,
+        )
+
+        assertEquals("2 on YouTube Music · 3 file(s) from 2 peer(s)", note(state))
+    }
+
+    @Test
+    fun `a source that is switched off is not counted`() {
+        val state = SearchState(
+            query = "kid a",
+            youtube = listOf(track()),
+            hits = listOf(hit()),
+            matched = 3,
+            peers = 2,
+        )
+
+        assertEquals("3 file(s) from 2 peer(s)", note(state, showYoutube = false))
+        assertEquals("1 on YouTube Music", note(state, showSoulseek = false))
     }
 
     @Test
     fun `the peer count is not reported while the peer results are hidden`() {
         val state = SearchState(query = "kid a", hits = listOf(hit()), matched = 3, peers = 2)
 
-        assertNull(statusNote(state, showSoulseek = false, catalogueShown = true))
-        assertEquals("3 match(es) from 2 peer(s)", statusNote(state, true, true))
+        assertNull(note(state, showSoulseek = false, showYoutube = false, catalogueShown = true))
     }
 
-    @Test
-    fun `nothing is said while the peer results are hidden and nothing is in the catalogue`() {
-        val state = SearchState(query = "kid a", hits = listOf(hit()), matched = 3, peers = 2)
+    private fun note(
+        state: SearchState,
+        showSoulseek: Boolean = true,
+        showYoutube: Boolean = true,
+        catalogueShown: Boolean = false,
+    ) = statusNote(state, showSoulseek, showYoutube, catalogueShown)
 
-        assertNull(statusNote(state, showSoulseek = false, catalogueShown = false))
-    }
+    private fun track(title: String = "Let It Happen") =
+        YtmTrack(videoId = "v_$title", title = title, artist = "Tame Impala")
 
     private fun hit() = SearchHit(
         peer = "peer_a",
