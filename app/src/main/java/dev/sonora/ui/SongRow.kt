@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -90,6 +91,9 @@ internal fun SongRow(
      * row for the library would be free to disagree about all four.
      */
     trailing: @Composable RowScope.() -> Unit = {},
+    /** Whether a hairline is drawn under this row. Off for the last one in a list. */
+    divider: Boolean = false,
+    dividerColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
 ) {
     val tint = if (isCurrent) activeTint else MaterialTheme.colorScheme.onBackground
     val background by animateColorAsState(
@@ -98,6 +102,21 @@ internal fun SongRow(
     )
 
     Box(modifier = modifier.fillMaxWidth()) {
+        // The hairline that separates one row from the next, drawn behind it and inset past the
+        // artwork. A line that runs the full width cuts every row's leading square in half, and a
+        // list of rows with no separation at all reads as a wall of text where the eye has nothing
+        // to catch on between entries.
+        if (divider) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(start = ROW_DIVIDER_INSET)
+                    .height(0.5.dp)
+                    .background(dividerColor),
+            )
+        }
+
         // The swipe is drawn behind the row and revealed by the row moving off it, which is why the
         // reveal is a clip of the row's own bounds rather than a second surface: anything drawn
         // behind a moving row has to be clipped to it, or it shows at the row's edges.

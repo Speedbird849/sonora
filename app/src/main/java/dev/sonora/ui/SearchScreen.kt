@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -174,9 +175,9 @@ fun SearchScreen() {
         // Ordering only means anything for the peer results, so it is offered only when those are
         // the ones on show.
         if (showSoulseek && (searchState.hits.isNotEmpty() || searchState.searching)) {
-            ChipRow {
+            ChoicePillRow {
                 SortMode.entries.forEach { mode ->
-                    SearchChip(
+                    ChoicePill(
                         label = mode.label,
                         selected = sort == mode,
                         onClick = { onSort(mode) },
@@ -187,9 +188,9 @@ fun SearchScreen() {
 
         if (catalogue.isNotEmpty() || searchState.hits.isNotEmpty() ||
             searchState.youtube.isNotEmpty() || searchState.searching || searchState.youtubeLoading) {
-            ChipRow {
+            ChoicePillRow {
                 SearchSource.entries.forEach { source ->
-                    SearchChip(
+                    ChoicePill(
                         label = source.label,
                         selected = source in sources,
                         onClick = { SonoraBackend.setSearchSource(source, source !in sources) },
@@ -330,9 +331,21 @@ fun SearchScreen() {
                 // finish downloading before anything comes out of it.
                 if (showYoutube && (searchState.youtube.isNotEmpty() || searchState.youtubeLoading)) {
                     item(key = "youtube") {
-                        SectionHeader(
-                            title = "On YouTube Music",
-                            subtitle = "Plays now; search the network for a lossless copy",
+                        ResultSectionHeader("Songs")
+                    }
+
+                    item(key = "youtube-note") {
+                        Text(
+                            text = "Plays now; search the network for a lossless copy",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(
+                                start = PAGE_GUTTER,
+                                end = PAGE_GUTTER,
+                                bottom = 8.dp,
+                            ),
                         )
                     }
                     // Placeholders for the wait, in place of a section header and nothing under it.
@@ -342,10 +355,11 @@ fun SearchScreen() {
                         songListSkeleton(count = 6, keyPrefix = "skeleton:ytm")
                     }
 
-                    items(
+                    itemsIndexed(
                         searchState.youtube,
-                        key = { "ytm:" + it.videoId },
-                    ) { track ->
+                        key = { _, it -> "ytm:" + it.videoId },
+                    ) { index, track ->
+                        val last = index == searchState.youtube.lastIndex
                         SongRow(
                             track = LibraryTrack.fromRemote(track),
                             onClick = {
@@ -358,6 +372,7 @@ fun SearchScreen() {
                             },
                             onMore = { peerSearch(track) },
                             meta = listOfNotNull(track.artist, track.album).joinToString("  ·  "),
+                            divider = !last,
                         )
                     }
                 }
@@ -422,44 +437,6 @@ fun SearchScreen() {
             },
         )
     }
-}
-
-/**
- * One of the chips above the results: how they are ordered, and which sources are shown.
- *
- * Shared by both rows so the two read as one set of controls rather than two styles of button.
- */
-@Composable
-private fun SearchChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-        shape = RoundedCornerShape(12.dp),
-        colors = FilterChipDefaults.filterChipColors(
-            containerColor = Color.Transparent,
-            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            // The accent as a tint rather than as a fill. Three of these side by side is already a
-            // lot of chip; filling them all in the accent turns the row into the loudest thing on
-            // the screen and leaves nothing for the results below it to be louder than.
-            selectedContainerColor = MaterialTheme.colorScheme.accentText.copy(alpha = 0.16f),
-            selectedLabelColor = MaterialTheme.colorScheme.accentText,
-        ),
-        border = null,
-    )
-}
-
-/** A row of chips that scrolls sideways when there are more than fit across. */
-@Composable
-private fun ChipRow(content: @Composable RowScope.() -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = PAGE_GUTTER, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        content = content,
-    )
 }
 
 /**

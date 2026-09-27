@@ -193,36 +193,20 @@ fun LibraryScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            text = "Your Library",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp, bottom = 4.dp),
+            text = "Library",
+            style = MaterialTheme.typography.displayLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = PAGE_GUTTER, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            LibrarySection.entries.forEach { entry ->
-                FilterChip(
+        ChoicePillShelf {
+            items(LibrarySection.entries.size, key = { LibrarySection.entries[it].name }) { index ->
+                val entry = LibrarySection.entries[index]
+
+                ChoicePill(
+                    label = entry.label,
                     selected = section == entry,
                     onClick = { section = entry },
-                    label = {
-                        Text(entry.label, style = MaterialTheme.typography.labelMedium)
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = Color.Transparent,
-                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        // A tint rather than a fill: four of these in a row filled in the accent is
-                        // more colour than the list below them gets to be.
-                        selectedContainerColor =
-                            MaterialTheme.colorScheme.accentText.copy(alpha = 0.16f),
-                        selectedLabelColor = MaterialTheme.colorScheme.accentText,
-                    ),
-                    border = null,
                 )
             }
         }

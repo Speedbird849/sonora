@@ -150,6 +150,15 @@ fun NowPlayingScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
+        // The sleeve, blown up and blurred into the background.
+        //
+        // The one thing that makes a player look like it belongs to the music rather than to the
+        // phone: the whole screen takes its colour from the record, so a warm sleeve makes the
+        // controls look warm and a black one leaves them on plain black. Drawn from the same
+        // bitmap as the artwork above it, so there is nothing extra to fetch and no chance of the
+        // two disagreeing about what the record looks like.
+        ArtworkBackdrop(track = track)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()

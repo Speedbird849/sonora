@@ -275,3 +275,28 @@ data class HeroEntry(
     val artwork: ImageBitmap?,
     val tracks: List<LibraryTrack> = emptyList(),
 )
+
+/**
+ * The heading on a group of results inside a list.
+ *
+ * A shelf on a page of its own can carry a big heading, because there is nothing else competing
+ * for the top of the screen. A group *within* a list cannot: it arrives halfway down, under a dozen
+ * rows and above another dozen, and a 22dp heading there reads as a new page starting rather than as
+ * a label on what is under it. This is the small one, for that case.
+ */
+@Composable
+internal fun ResultSectionHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.padding(
+            start = PAGE_GUTTER,
+            end = PAGE_GUTTER,
+            top = 16.dp,
+            bottom = 6.dp,
+        ),
+    )
+}
