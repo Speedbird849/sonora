@@ -196,7 +196,7 @@ fun HomeScreen(
             PlaylistsRow(
                 onImportSpotify = onImportSpotify,
                 playlists = orderedPlaylists,
-                byKey = tracks,
+                tracks = tracks,
                 onOpen = onOpenPlaylist,
             )
         }
@@ -337,13 +337,17 @@ private fun PlaylistsRow(
 
             items(playlists, key = { it.id }) { playlist ->
                 val liked = playlist.id == Playlists.LIKED_ID
+                // Resolved against the library, in the playlist's own order: a mosaic is a cover, and
+                // a cover of a playlist is the first few things in it.
+                val contents = playlist.trackKeys.mapNotNull { byKey[it] }
 
                 ShelfCard(
                     artwork = null,
-                    icon = if (liked) Icons.Filled.Favorite else Icons.AutoMirrored.Filled.QueueMusic,
+                    mosaic = contents.take(MOSAIC_TRACKS),
+                    icon = playlistIcon(liked),
                     title = playlist.name,
                     subtitle = run {
-                        val count = playlist.trackKeys.count { it in keys }
+                        val count = contents.size
                         if (count == 1) "1 track" else "$count tracks"
                     },
                     onClick = { onOpen(playlist.id) },

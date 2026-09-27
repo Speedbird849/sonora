@@ -166,19 +166,27 @@ fun LibraryScreen(
         ?.map { LibraryTrack.fromRemote(it) }
         .orEmpty()
 
+    // A page asked for by browse id is the page YouTube Music served, and it wins over anything the
+    // local library happens to call the same thing. The album line on the player names an album and
+    // carries that album's browse id: tapping it is a request for the release, not for the one track
+    // of it that happens to be on this phone — which is a page of one, under the right name.
     val album = openAlbum ?: (pageName ?: albumName ?: openAlbumName)?.let { name ->
-        albums.firstOrNull { it.name.equals(name, ignoreCase = true) }
-            ?: playback.track?.takeIf { it.album?.equals(name, ignoreCase = true) == true }?.let { t ->
-                LibraryGrouping.Album(name = name, artist = t.artist ?: LibraryGrouping.UNKNOWN_ARTIST, tracks = listOf(t))
-            }
-            ?: remoteAlbum.takeIf { it.isNotEmpty() }?.let { tracks ->
-                LibraryGrouping.Album(
-                    name = browsed[openPage?.browseId]?.page?.title?.takeIf { h -> h.isNotBlank() } ?: name,
-                    artist = tracks.firstNotNullOfOrNull { it.artist }
-                        ?: LibraryGrouping.UNKNOWN_ARTIST,
-                    tracks = tracks,
-                )
-            }
+        val browsedAlbum = remoteAlbum.takeIf { it.isNotEmpty() }?.let { tracks ->
+            LibraryGrouping.Album(
+                name = browsed[openPage?.browseId]?.page?.title?.takeIf { h -> h.isNotBlank() } ?: name,
+                artist = tracks.firstNotNullOfOrNull { it.artist }
+                    ?: LibraryGrouping.UNKNOWN_ARTIST,
+                tracks = tracks,
+            )
+        }
+        when {
+            openPage?.browseId != null -> browsedAlbum
+            else -> albums.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                ?: playback.track?.takeIf { it.album?.equals(name, ignoreCase = true) == true }?.let { t ->
+                    LibraryGrouping.Album(name = name, artist = t.artist ?: LibraryGrouping.UNKNOWN_ARTIST, tracks = listOf(t))
+                }
+                ?: browsedAlbum
+        }
     }
 
     if (album != null) {
@@ -717,21 +725,11 @@ private fun PlaylistRow(
             .padding(horizontal = PAGE_GUTTER, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Tile {
-            Icon(
-                imageVector = if (reserved) {
-                    Icons.Filled.Favorite
-                } else {
-                    Icons.AutoMirrored.Filled.QueueMusic
-                },
-                contentDescription = null,
-                tint = if (reserved) {
-                    MaterialTheme.colorScheme.accentText
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
+        PlaylistMosaic(
+            tracks = artwork,
+            modifier = Modifier.size(56.dp),
+            icon = playlistIcon(reserved),
+        )
 
         Column(
             modifier = Modifier

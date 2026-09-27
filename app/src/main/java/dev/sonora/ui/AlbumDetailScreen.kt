@@ -50,6 +50,13 @@ fun AlbumDetailScreen(
      * picture — which is the album's, not whichever track happened to be listed first.
      */
     artworkUrl: String? = null,
+    /**
+     * Whether anything is playing, so the list can stop short of the mini player.
+     *
+     * Not asked for here: the page is a plain function of its arguments, and every list that has to
+     * clear the bars takes this as a flag rather than reaching for the player.
+     */
+    playing: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -156,7 +163,13 @@ fun AlbumDetailScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+            // Room for the tab bar, and for the mini player when one is up. Without it the last
+            // track of an album sits underneath them, which on a page opened from a search result
+            // looks like the page is cut off rather than like a list that continues.
+            contentPadding = PaddingValues(
+                top = 8.dp,
+                bottom = listBottomPadding(playing) + 16.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(album.tracks, key = { _, track -> track.key }) { index, track ->

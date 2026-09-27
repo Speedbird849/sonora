@@ -108,6 +108,11 @@ internal fun ShelfCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    /**
+     * Tracks whose own covers make this card's picture, for anything that has no picture of its own
+     * — a playlist. Empty for a card that is its own image, and for one that has only an icon.
+     */
+    mosaic: List<LibraryTrack> = emptyList(),
 ) {
     Column(
         modifier = modifier
@@ -128,6 +133,11 @@ internal fun ShelfCard(
                     bitmap = artwork,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
+                )
+
+                mosaic.isNotEmpty() -> PlaylistMosaic(
+                    tracks = mosaic,
+                    shape = RoundedCornerShape(12.dp),
                 )
 
                 icon != null -> Icon(
