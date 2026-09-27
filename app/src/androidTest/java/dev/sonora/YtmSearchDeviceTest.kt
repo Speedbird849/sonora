@@ -3,6 +3,7 @@ package dev.sonora
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.sonora.ytm.YtmSearch
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,5 +34,27 @@ class YtmSearchDeviceTest {
     @Test
     fun blankQueryIsEmpty() = runBlocking {
         assertTrue(YtmSearch.search("   ").isEmpty())
+    }
+
+    /**
+     * Whether a search actually walks to a second page.
+     *
+     * Worth checking on a device rather than in a fixture, because the continuation is a token
+     * handed back by a live response and a wrong key or a mistyped params value fails silently —
+     * the search still returns its first page and reads as if paging simply does not exist.
+     */
+    @Test
+    fun walksToASecondPage() = runBlocking {
+        val tracks = YtmSearch.search("the weeknd")
+        println("PAGED ${tracks.size}")
+        assertEquals(
+            "results should be unique after two pages are merged",
+            tracks.size,
+            tracks.map { it.videoId }.toSet().size,
+        )
+        assertTrue(
+            "expected more than one page for a broad query, got ${tracks.size}",
+            tracks.size > 20,
+        )
     }
 }

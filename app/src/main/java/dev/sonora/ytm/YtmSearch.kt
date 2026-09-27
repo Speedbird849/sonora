@@ -132,17 +132,19 @@ object YtmSearch {
         }.getOrDefault(emptyList())
     }
 
-    /** The token that asks for the page after this one, or null when there isn't one. */
+    /**
+     * The token that asks for the page after this one, or null when there isn't one.
+     *
+     * Read out of `musicShelfRenderer.continuations[].nextContinuationData`, which is where this
+     * client puts it. The other shape — a `continuationItemRenderer` row at the end of the shelf —
+     * is what the ordinary web client sends, and reading only that one is a search that silently
+     * stops at twenty results however many the query matched.
+     */
     private fun continuationOf(root: JsonElement): String? {
-        for (tab in root.descend("contents", "tabbedSearchResultsRenderer", "tabs").arr()) {
-            for (section in tab.descend("tabRenderer", "content", "sectionListRenderer", "contents").arr()) {
-                val shelf = section.obj()?.get("musicShelfRenderer").obj() ?: continue
-                for (item in shelf["contents"].arr()) {
-                    item.descend("continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
-                        .str()
-                        ?.let { return it }
-                }
-            }
+        for (shelf in shelves(root)) {
+            shelf["continuations"].arr()
+                .firstNotNullOfOrNull { it.descend("nextContinuationData", "continuation").str() }
+                ?.let { return it }
         }
         return null
     }
@@ -176,17 +178,35 @@ object YtmSearch {
     /** Reads the songs shelf out of the tabs and off the rows. */
     private fun parse(root: JsonElement): List<YtmTrack> {
         val tracks = mutableListOf<YtmTrack>()
-        for (tab in root.descend("contents", "tabbedSearchResultsRenderer", "tabs").arr()) {
-            val sections = tab.descend("tabRenderer", "content", "sectionListRenderer", "contents").arr()
-            for (section in sections) {
-                val rows = section.obj()?.get("musicShelfRenderer").obj()
-                    ?.get("contents").arr()
-                for (row in rows) {
-                    parseRow(row.obj()?.get("musicResponsiveListItemRenderer"))?.let(tracks::add)
-                }
+        for (shelf in shelves(root)) {
+            for (row in shelf["contents"].arr()) {
+                parseRow(row.obj()?.get("musicResponsiveListItemRenderer"))?.let(tracks::add)
             }
         }
         return tracks.distinctBy { it.videoId }
+    }
+
+    /**
+     * Every song shelf in a response, whichever page shape it arrived in.
+     *
+     * Two shapes, because the first page and the pages after it are not built alike: the first is
+     * nested under the songs tab, and a continuation arrives on its own at
+     * `continuationContents.musicShelfContinuation` with no tab around it. Walking one path and
+     * expecting the other is a second page that is requested and then never read.
+     */
+    private fun shelves(root: JsonElement): List<JsonObject> {
+        val found = mutableListOf<JsonObject>()
+
+        for (tab in root.descend("contents", "tabbedSearchResultsRenderer", "tabs").arr()) {
+            val sections = tab.descend("tabRenderer", "content", "sectionListRenderer", "contents").arr()
+            for (section in sections) {
+                section.obj()?.get("musicShelfRenderer").obj()?.let(found::add)
+            }
+        }
+
+        root.descend("continuationContents", "musicShelfContinuation").obj()?.let(found::add)
+
+        return found
     }
 
     /**
