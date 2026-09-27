@@ -1,17 +1,16 @@
 package dev.sonora.ui
 
-import android.graphics.BitmapFactory
-import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.util.LruCache
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import dev.sonora.ytm.YtmHttp
 import java.io.File
 import java.security.MessageDigest
+import java.util.Collections
+import java.util.HashSet
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Remote artwork, kept in memory for the session and on disk for the next one.
+ * Remote artwork, kept as bytes in memory for the session and on disk for the next one.
  *
  * ### Why on disk
  *
@@ -21,22 +20,37 @@ import java.util.concurrent.ConcurrentHashMap
  * not change: a YouTube Music playlist's artwork is uploaded once and is the same bytes for the life
  * of the playlist, so there is nothing to revalidate.
  *
- * Keyed by the URL *at the size it was fetched for*, because the same cover is kept at row size and
- * at card size and one is not a substitute for the other — decoding a 52dp thumbnail across a
- * full-screen sleeve is what makes a cover go soft.
+ * Keyed by the URL *as it was fetched*, which carries the size it was fetched at: the same cover is
+ * kept at row size and at card size and one is not a substitute for the other — decoding a 52dp
+ * thumbnail across a full-screen sleeve is what makes a cover go soft.
+ *
+ * ### Bytes, not bitmaps
+ *
+ * A bitmap at card size is a megabyte and a half, and there are forty of them on a search page.
+ * Decoding is left to whoever asked, because only they know the size the picture is about to be
+ * drawn at. What is stored is what was fetched, once, and shared by every reader.
  *
  * Capped, and the oldest entries go first. Without a ceiling a long session of browsing is a few
  * hundred megabytes of pictures, and a search page is not worth that.
  */
 internal object RemoteArtworkCache {
 
-    /** A few hundred covers is more than any one page holds and less than a runaway. */
+    /** A few dozen covers is more than any one page draws at once and less than a runaway. */
     private const val DIRECTORY = "artwork"
     private const val MAX_BYTES = 64L * 1024L * 1024L
+    private const val KEPT_IN_MEMORY = 48
 
-    private val memory = LruCache<String, ImageBitmap>(256)
+    private val memory = LruCache<String, ByteArray>(KEPT_IN_MEMORY)
 
     private val known = ConcurrentHashMap<String, String>()
+
+    /**
+     * Keys that were asked for and are not there.
+     *
+     * A URL that fails is remembered as absent rather than asked for again on every recomposition,
+     * which is what an unbounded trail of misses would otherwise turn into.
+     */
+    private val absent = Collections.synchronizedSet(HashSet<String>())
 
     private var directory: File? = null
 
@@ -45,54 +59,112 @@ internal object RemoteArtworkCache {
         directory = File(filesDir, DIRECTORY).apply { mkdirs() }
     }
 
+    /**
+     * The key for a picture, and the URL that serves it: the same string, on purpose.
+     *
+     * The size lives in the path, so the same cover is kept at row size and at card size. The key is
+     * the URL *as fetched*, so what is on disk, what is in memory, and what was asked for are the
+     * same picture rather than three versions of it — and a cover fetched for the notification is the
+     * cover the sleeve shows.
+     */
+    fun keyFor(url: String, px: Int): String {
+        val wanted = px.coerceIn(64, 544)
+        val sized = Regex("=w\\d+-h\\d+").replace(url, "=w$wanted-h$wanted")
+        // A URL with no size segment, or one whose size segment did not match, keeps its own.
+        return if (sized == url && !url.contains("=w")) url else sized
+    }
+
+    /**
+     * The bytes for [key], from memory or from disk, or null when nothing is there.
+     *
+     * Never fetches: a reader that can draw a placeholder can wait for a composable to do the
+     * asking.
+     */
+    fun bytes(key: String): ByteArray? {
+        if (absent.contains(key)) return null
+        memory.get(key)?.let { return it }
+        val file = fileFor(key) ?: return null
+        return runCatching { file.readBytes() }.getOrNull()?.also { memory.put(key, it) }
+    }
+
+    /** A file holding [key]'s bytes, or null when nothing has been fetched for it yet. */
+    private fun fileFor(key: String): File? {
+        if (absent.contains(key)) return null
+        val file = directory?.let { File(it, nameFor(key)) } ?: return null
+        if (!file.isFile) return null
+        known[key] = file.path
+        return file
+    }
+
+    /**
+     * A file holding the picture at [url] as it was fetched, written if it is not there yet.
+     *
+     * For the one reader that is handed a *path* rather than a bitmap: the notification's artwork,
+     * which the library loads in-process from whatever URI the metadata names. Blocking, so the
+     * caller has to be off the main thread.
+     */
+    fun fetchedFile(url: String, px: Int): File? {
+        val key = keyFor(url, px)
+        fileFor(key)?.let { return it }
+
+        val bytes = runCatching {
+            YtmHttp.client.newCall(okhttp3.Request.Builder().url(key).build()).execute().use { response ->
+                if (response.isSuccessful) response.body?.bytes() else null
+            }
+        }.getOrNull()
+        if (bytes == null) {
+            absent.add(key)
+            return null
+        }
+        put(key, bytes)
+        return fileFor(key)
+    }
+
+    /**
+     * A file holding the picture embedded in [audio], written out once.
+     *
+     * A downloaded track keeps its cover inside the file, and the notification is handed a URI and
+     * asked to load it rather than handed the file itself. Cached by path and size, so it costs one
+     * extraction per track rather than one per track change.
+     */
+    fun embeddedFile(audio: File, px: Int): File? {
+        val key = "embedded|${audio.absolutePath}|${audio.length()}"
+        fileFor(key)?.let { return it }
+
+        val retriever = MediaMetadataRetriever()
+        val picture = try {
+            retriever.setDataSource(audio.absolutePath)
+            retriever.embeddedPicture
+        } catch (_: Exception) {
+            null
+        } finally {
+            retriever.release()
+        } ?: return null
+
+        put(key, picture)
+        return fileFor(key)
+    }
+
     /** A file name for a key, without the extension so a reader can find it without knowing. */
-    private fun fileFor(key: String): String {
+    private fun nameFor(key: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    /**
-     * The bitmap for [key], fetched if it has to be.
-     *
-     * Blocking: every caller is already on a coroutine that is meant to be off the main thread, and
-     * returning a [androidx.compose.runtime.Composable]'s lazy would mean the page renders twice —
-     * once with placeholders and once when the pictures land — which is the jump this is here to
-     * avoid.
-     */
-    fun get(key: String, fetch: (String) -> ByteArray?): ImageBitmap? {
-        memory.get(key)?.let { return it }
-        if (known.containsKey(key)) return null
-
-        val bytes = read(key) ?: fetch(key)?.also { put(key, it) }
-        return bytes?.let { decode(it, key) }
-    }
-
-    /** What is on disk for [key], without fetching. */
-    private fun read(key: String): ByteArray? {
-        val file = directory?.let { File(it, fileFor(key)) } ?: return null
-        if (!file.isFile) return null
-        known[key] = file.path
-        return runCatching { file.readBytes() }.getOrNull()
-    }
-
     /** Writes [bytes] for [key], if there is room. */
     fun put(key: String, bytes: ByteArray) {
+        memory.put(key, bytes)
+        absent.remove(key)
         val dir = directory ?: return
         if (known.containsKey(key)) return
 
         runCatching {
             if (!dir.isDirectory) dir.mkdirs()
             if (usedBy(dir) + bytes.size > MAX_BYTES) trim(dir, bytes.size)
-            val file = File(dir, fileFor(key))
+            val file = File(dir, nameFor(key))
             file.writeBytes(bytes)
             known[key] = file.path
         }
-    }
-
-    private fun decode(bytes: ByteArray, key: String): ImageBitmap? {
-        val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-        return bitmap.asImageBitmap().also { memory.put(key, it) }
     }
 
     private fun usedBy(dir: File): Long = dir.listFiles()?.sumOf { it.length() } ?: 0L

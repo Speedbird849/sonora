@@ -7,4 +7,6 @@
     <string name="notification_downloading">Downloading %1$s</string>
     <string name="notification_download_failed">Download failed: %1$s</string>
     <string name="notification_disconnect">Disconnect</string>
+    <string name="playback_channel_name">Playback</string>
+    <string name="playback_channel_description">The track that is playing, and the controls for it</string>
 </resources>

@@ -6,9 +6,11 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import dev.sonora.ui.RemoteArtworkCache
 import dev.sonora.playback.PlaybackService
 import dev.sonora.playback.extend
 import dev.sonora.playback.nextSeed
@@ -535,20 +537,14 @@ object SonoraPlayer {
      * has to carry.
      */
     private suspend fun itemFor(track: LibraryTrack): MediaItem? {
-        track.playableUri?.let { uri ->
+        val uri = track.playableUri?.let { uri ->
             // The id is set here too, not only on the streaming branch. It is what the queue is
             // searched by to work out where playback actually started, and an item without one
             // never matches — which silently sent every local tap to the top of the list.
             return MediaItem.Builder()
                 .setUri(Uri.parse(uri))
                 .setMediaId(track.key)
-                .setMediaMetadata(
-                    androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .build(),
-                )
+                .setMediaMetadata(metadata(track))
                 .build()
         }
 
@@ -556,14 +552,39 @@ object SonoraPlayer {
         return MediaItem.Builder()
             .setUri(audio.url)
             .setMediaId(track.key)
-            .setMediaMetadata(
-                androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setAlbumTitle(track.album)
-                    .build(),
-            )
+            .setMediaMetadata(metadata(track))
             .build()
+    }
+
+    /**
+     * What the track says about itself, including the picture the notification shows.
+     *
+     * The cover is part of the metadata rather than something the player screen adds, because the
+     * notification is drawn by the system from this and from nothing else: an item with a title and
+     * no artwork is a notification with a blank square in it, on the lock screen and in the shade.
+     *
+     * Fetched here, on the way past, because the alternative is a second request at the moment the
+     * track changes — which is the moment the shade is already open and the blank is most visible.
+     * The bytes go through the same on-disk cache the rows read, so it is one request per cover for
+     * the life of the app and none at all for a cover already on the device.
+     */
+    private suspend fun metadata(track: LibraryTrack): MediaMetadata {
+        val builder = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setAlbumTitle(track.album)
+        artworkFor(track)?.let { builder.setArtworkUri(it) }
+        return builder.build()
+    }
+
+    private suspend fun artworkFor(track: LibraryTrack): Uri? = withContext(Dispatchers.IO) {
+        val remote = track.remote
+        val file = when {
+            remote != null -> remote.artworkUrl?.let { RemoteArtworkCache.fetchedFile(it, NOTIFICATION_ART_PX) }
+            // A downloaded track keeps its cover inside the file, where nothing else can see it.
+            else -> track.file?.let { RemoteArtworkCache.embeddedFile(it, NOTIFICATION_ART_PX) }
+        } ?: return@withContext null
+        Uri.fromFile(file)
     }
 
     /**
@@ -655,4 +676,9 @@ object SonoraPlayer {
     }
 
     private const val MAX_RESOLVED = 32
+
+
+    /** Big enough for the notification's own copy of a cover, which it scales down itself. */
+
+    private const val NOTIFICATION_ART_PX = 544
 }

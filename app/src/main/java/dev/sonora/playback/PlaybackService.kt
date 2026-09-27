@@ -1,11 +1,15 @@
 package dev.sonora.playback
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import dev.sonora.R
 import dev.sonora.ytm.YtmStream
 
 /**
@@ -53,6 +57,32 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         session = MediaSession.Builder(this, player).build()
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setChannelId(CHANNEL_ID)
+                .setChannelName(R.string.playback_channel_name)
+                .build()
+                .also { createChannel(it) },
+        )
+    }
+
+    /**
+     * The channel the playback notification lives in.
+     *
+     * Quiet, and named. The library's own default is a channel called after the app at default
+     * importance, which means every track change makes the phone make a sound — the notification is
+     * the *state* of playback, and a state that announces itself is a state you start ignoring.
+     */
+    private fun createChannel(provider: DefaultMediaNotificationProvider) {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            getString(R.string.playback_channel_name),
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = getString(R.string.playback_channel_description)
+            setShowBadge(false)
+        }
+        getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -64,5 +94,9 @@ class PlaybackService : MediaSessionService() {
         }
         session = null
         super.onDestroy()
+    }
+
+    private companion object {
+        const val CHANNEL_ID = "playback"
     }
 }
