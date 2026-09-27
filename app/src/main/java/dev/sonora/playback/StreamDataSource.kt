@@ -1,5 +1,7 @@
 package dev.sonora.playback
 
+import android.util.Log
+
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
@@ -13,6 +15,9 @@ import androidx.media3.datasource.HttpDataSource
 import dev.sonora.ytm.YtmHttp
 import java.io.IOException
 import okhttp3.Response
+
+/** The log tag for the one class in here that has anything to say. */
+private const val TAG = "StreamDataSource"
 
 /**
  * The HTTP source a resolved YouTube Music stream is played through.
@@ -35,6 +40,7 @@ import okhttp3.Response
  */
 @UnstableApi
 internal class StreamDataSource(
+
     /** Asked per open, not held: which client minted a URL is a property of the stream. */
     private val headersFor: (String) -> Map<String, String>,
     private val context: Context,
@@ -76,7 +82,19 @@ internal class StreamDataSource(
         }
 
         if (!opened.isSuccessful) {
+            val code = opened.code
             opened.close()
+            // 403 from googlevideo is YouTube refusing the *bytes* for an address, not a problem
+            // with the URL or the headers: the same URL, with the same client identity, works from
+            // a different network. Said in the message because a bare "Response code: 403" twenty
+            // frames into playback is not something anybody can act on.
+            if (code == 403) {
+                Log.w(
+                    TAG,
+                    "googlevideo refused the stream for $code. The URL was minted and is not " +
+                        "stale; the address asking for the bytes was refused.",
+                )
+            }
             throw HttpDataSource.InvalidResponseCodeException(
                 opened.code,
                 /* responseMessage = */ null,
