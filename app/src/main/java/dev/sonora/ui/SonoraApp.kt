@@ -701,6 +701,7 @@ private fun MainTabs(state: BackendState) {
                     },
                     onToggleShuffle = { SonoraPlayer.toggleShuffle() },
                     onCycleRepeat = { SonoraPlayer.cycleRepeat() },
+                    onToggleAutoplay = { SonoraPlayer.toggleAutoplay() },
                     onAddToPlaylist = { addTarget = playback.track },
                     onOpenArtist = { artistName ->
                         openArtistName = artistName

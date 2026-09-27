@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -86,6 +87,7 @@ fun NowPlayingScreen(
     onToggleLike: () -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
+    onToggleAutoplay: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onOpenArtist: (String) -> Unit = {},
     onOpenAlbum: (String) -> Unit = {},
@@ -474,6 +476,16 @@ fun NowPlayingScreen(
                         contentDescription = if (playback.isShuffled) "Turn shuffle off" else "Turn shuffle on",
                         onClick = onToggleShuffle,
                         active = playback.isShuffled,
+                    )
+                    CapsuleSegment(
+                        icon = Icons.Filled.AutoAwesome,
+                        contentDescription = if (playback.autoplay) {
+                            "Turn autoplay off"
+                        } else {
+                            "Turn autoplay on"
+                        },
+                        onClick = onToggleAutoplay,
+                        active = playback.autoplay,
                     )
                     CapsuleSegment(
                         icon = if (playback.repeatMode == RepeatMode.One) {

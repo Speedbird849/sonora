@@ -10,7 +10,12 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dev.sonora.playback.PlaybackService
+import dev.sonora.playback.extend
+import dev.sonora.playback.nextSeed
+import dev.sonora.playback.seedQueryFor
+import dev.sonora.playback.shouldTopUp
 import dev.sonora.ytm.YtmAudio
+import dev.sonora.ytm.YtmSearch
 import dev.sonora.ytm.YtmStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -239,6 +244,104 @@ object SonoraPlayer {
      * already shuffles traversal while keeping the current item, so reordering would duplicate
      * that and lose the place of the track playing.
      */
+    /**
+     * Turns the queue's self-refill on or off.
+     *
+     * Held here rather than in the player because the refill is a property of the queue and has to
+     * survive leaving the player: turning it on and then closing the player must not turn it back
+     * off, which is what a flag in the screen would do.
+     */
+    fun toggleAutoplay() {
+        val next = !_state.value.autoplay
+        _state.update { it.copy(autoplay = next) }
+        if (next) {
+            // Turning it on while the queue is already short has to fill it now, or the switch
+            // reads as broken until the next track happens to end.
+            scope.launch { topUp() }
+        }
+    }
+
+    /**
+     * Fills the queue with suggestions, if the rules say it is time.
+     *
+     * The rules live in [shouldTopUp] so they can be read without a player; this is the half that
+     * asks the network and puts the answer in the queue.
+     */
+    private suspend fun topUp() {
+        if (autoplayLoading) return
+        val active = controller ?: return
+        if (!shouldTopUp(
+                enabled = _state.value.autoplay,
+                repeatAll = active.repeatMode == Player.REPEAT_MODE_ALL,
+                currentIndex = active.currentMediaItemIndex,
+                itemCount = active.mediaItemCount,
+                loadInProgress = autoplayLoading,
+            )
+        ) {
+            return
+        }
+
+        autoplayLoading = true
+        try {
+            var tried = listOf<String>()
+            repeat(SEED_ATTEMPTS) {
+                val history = _upNext.value.queue
+                val seed = nextSeed(tried, history.filter { it.remote != null }.mapNotNull { it.remote })
+                    ?: history.firstNotNullOfOrNull { it.remote }
+                    ?: return@repeat
+                val query = seedQueryFor(seed) ?: return@repeat
+                tried = tried + query
+
+                val candidates = YtmSearch.search(query)
+                val added = extend(
+                    queued = _upNext.value.queue.mapNotNull { it.remote },
+                    candidates = candidates,
+                    recent = recentIds(),
+                )
+                if (added.isEmpty()) return@repeat
+
+                // Asked for the same order the panel shows them in, because a queue whose contents
+                // differ from the panel is a queue the listener cannot see.
+                val current = _upNext.value.queue.toMutableList()
+                current.addAll(added.map { LibraryTrack.fromRemote(it) })
+                _upNext.value = UpNext(queue = current, index = active.currentMediaItemIndex)
+
+                val items = current.mapNotNull { itemFor(it) }
+                val keep = active.currentPosition
+                val at = active.currentMediaItemIndex
+                active.setMediaItems(items, at, keep)
+                active.prepare()
+                Log.d(TAG, "autoplay: queued ${added.size} more")
+                return
+            }
+        } finally {
+            autoplayLoading = false
+        }
+    }
+
+    /**
+     * The video ids of what has just played, newest first.
+     *
+     * Read off the queue rather than kept in a history of its own, so there is only one record of
+     * what has been through: a second list would be a second thing to forget to update.
+     */
+    private fun recentIds(): List<String> = _upNext.value.queue
+        .take(_upNext.value.index + 1)
+        .mapNotNull { it.remote?.videoId }
+        .reversed()
+
+    private var autoplayLoading = false
+
+    /**
+     * How many seeds one refill will try before giving up.
+     *
+     * More than one because a single search can come back with nothing — an artist with one
+     * obscure track, a network hiccup — and a queue that emptied because of one empty answer would
+     * be the exact failure this exists to prevent. Three is enough to get past a bad query without
+     * enough to turn one gap in the catalogue into a long silence.
+     */
+    private const val SEED_ATTEMPTS = 3
+
     fun toggleShuffle() {
         val active = controller ?: return
         active.shuffleModeEnabled = !active.shuffleModeEnabled
@@ -462,6 +565,12 @@ object SonoraPlayer {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             controller?.let { updateTrack(it) }
+
+            // Every player callback caused by one queue edit lands here, and topping up on each of
+            // them would ask for several batches for one transition. The rules refuse the second
+            // one while the first is running, so only the transition that leaves the queue short
+            // does any work.
+            scope.launch { topUp() }
         }
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
