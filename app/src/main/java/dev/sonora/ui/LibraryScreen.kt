@@ -209,6 +209,7 @@ fun LibraryScreen(
             // The cover belongs to the album, and the search that named it already had it. Its own
             // tracks have no file and no picture of their own to borrow.
             artworkUrl = openPage?.artworkUrl,
+            playing = playback.track != null,
         )
         return
     }
