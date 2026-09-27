@@ -115,10 +115,30 @@ fun SearchScreen() {
     val showYoutube = SearchSource.YOUTUBE_MUSIC in sources
     val catalogueShown = SearchSource.CATALOGUE in sources && catalogue.isNotEmpty()
 
+    // The top result's second button, and the flow it opens. Held here rather than inside the
+    // card: a sheet's host has to outlive the item that summoned it, or it is dismissed the moment
+    // the list the card lives in is recomposed.
+    var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
+    val playlists by SonoraBackend.playlists.collectAsState()
+
     // Asked once, before the first download. Where the files land decides whether they survive
     // uninstalling the app, so it is worth one question rather than a silent default.
     var askingWhere by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf<SearchHit?>(null) }
+
+    AddToPlaylistFlow(
+        track = addTarget,
+        playlists = playlists,
+        onDismiss = { addTarget = null },
+        onAdd = { playlist, track ->
+            SonoraBackend.addToPlaylist(context, playlist.id, track)
+            addTarget = null
+        },
+        onCreateWithTrack = { name, track ->
+            SonoraBackend.createPlaylist(context, name, track)
+            addTarget = null
+        },
+    )
 
     val pickFolder = rememberLauncherForActivityResult(        ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -330,6 +350,28 @@ fun SearchScreen() {
                 // is tapped: a stream resolves and plays, where a peer result is a file that has to
                 // finish downloading before anything comes out of it.
                 if (showYoutube && (searchState.youtube.isNotEmpty() || searchState.youtubeLoading)) {
+                    // The best of these is promoted above the list it is also in. Only once there is
+                    // something to promote: a card above an empty or still-loading section is a
+                    // title with no cover beside a skeleton, which reads as a result that came back
+                    // with nothing in it.
+                    val topResult = searchState.youtube.firstOrNull()
+                    if (topResult != null) {
+                        item(key = "top-result") {
+                            TopResultCard(
+                                track = LibraryTrack.fromRemote(topResult),
+                                onPlay = {
+                                    val picked = LibraryTrack.fromRemote(topResult)
+                                    SonoraPlayer.play(context, picked)
+                                    SonoraBackend.recordRecentTrack(context, picked)
+                                },
+                                onAddToPlaylist = {
+                                    addTarget = LibraryTrack.fromRemote(topResult)
+                                },
+                                onMore = { peerSearch(topResult) },
+                            )
+                        }
+                    }
+
                     item(key = "youtube") {
                         ResultSectionHeader("Songs")
                     }

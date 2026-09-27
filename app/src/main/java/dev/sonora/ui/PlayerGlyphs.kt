@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -156,23 +157,23 @@ private val ACTION_GLYPH: Dp = 26.dp
 private val ACTION_EDGE_INSET: Dp = 28.dp
 
 /**
- * The row of secondary controls under the transport.
+ * The row the player ends on: a bare disc, the capsule, a bare disc.
  *
- * The two ends are bare discs and the middle is a capsule of two or three, which is what makes
- * several controls read as one object rather than as a row of unrelated buttons. The width of the
- * row is computed for the widest state the capsule can be in, so that a control moving in or out of
- * the capsule does not shift its neighbours sideways — the middle is allowed to change, the outer
- * two are not.
+ * The two ends are bare and the middle is a capsule, which is what makes several controls read as
+ * one object rather than as a row of unrelated buttons. The row is computed for the widest state
+ * the capsule can be in, so a control moving in or out of it does not shift the ends sideways — the
+ * middle is allowed to change, the ends are not.
  */
 @Composable
 internal fun PlayerActionRow(
+    onFindLossless: () -> Unit,
     queueOpen: Boolean,
     onToggleQueue: () -> Unit,
     modifier: Modifier = Modifier,
-    capsule: @Composable () -> Unit,
+    capsule: @Composable RowScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val rowWidth = ACTION_EDGE_INSET * 2 + ACTION_SIZE * 2 + 64.dp * 3
+        val rowWidth = ACTION_EDGE_INSET * 2 + ACTION_SIZE * 2 + 64.dp * 2
         val inset = ((maxWidth - rowWidth) / 2).coerceAtLeast(0.dp)
 
         Row(
@@ -182,7 +183,14 @@ internal fun PlayerActionRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { capsule() }
+            ActionGlyph(
+                icon = Icons.Filled.Search,
+                contentDescription = "Find a lossless copy",
+                active = false,
+                onClick = onFindLossless,
+            )
+
+            ActionCapsule { capsule() }
 
             ActionGlyph(
                 icon = Icons.Filled.QueueMusic,

@@ -72,6 +72,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.Color
 import dev.sonora.backend.AudioQuality
 import dev.sonora.backend.RepeatMode
+import dev.sonora.backend.SearchQueries
+import dev.sonora.backend.SonoraBackend
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.ui.theme.accentText
 
@@ -420,11 +422,31 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            // The row under the transport: the queue at one end and a capsule of the modes that
-            // change what comes next at the other. Kept apart from the transport because they are
-            // not transport — nothing here moves the playhead, they change what the playhead will
-            // meet, and putting them among the skip buttons invites that confusion.
+            // Volume, in the same thin shape as the scrubber and directly under it, so the two read
+            // as one control rather than as a pair. Asked for above the row of actions rather than
+            // tucked into one of its corners: it is the control a listener reaches for constantly
+            // and without looking, which means it has to be in the same place every time.
+            val (volume, onVolumeChange) = rememberDeviceVolume()
+            VolumeRow(
+                volume = volume,
+                onVolumeChange = onVolumeChange,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            // The row under the transport: a disc at each end and the playback modes between them.
+            // Kept apart from the transport because they are not transport — nothing here moves the
+            // playhead, they change what the playhead will meet, and putting them among the skip
+            // buttons invites that confusion.
             PlayerActionRow(
+                onFindLossless = {
+                    val remote = track.remote ?: return@PlayerActionRow
+                    SonoraBackend.search(
+                        context,
+                        SearchQueries.forTrack(remote.title, remote.artist),
+                    )
+                },
                 queueOpen = queueOpen,
                 onToggleQueue = { queueOpen = !queueOpen },
                 modifier = Modifier.padding(horizontal = 24.dp),
