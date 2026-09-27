@@ -1,12 +1,22 @@
 package dev.sonora.ui
 
 import androidx.compose.foundation.background
+import dev.sonora.backend.SonoraBackend
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,14 +48,20 @@ import dev.sonora.backend.Shelves
 import dev.sonora.ytm.YtmCategory
 
 /**
- * A row of YouTube Music's own categories, each in the colour it is painted there.
+ * YouTube Music's own categories, two to a row and as many rows as they take.
  *
- * Tinted rather than outlined because that is what the categories *are*: a grid of coloured
- * buttons on YouTube's own page, and a page of identical grey pills says "filter" where the
- * original says "here is somewhere to go". The stripe is the colour, the label is white on it.
+ * A grid and not a row of circles, and both of those are the point. A row that scrolls sideways
+ * hides everything but the first four and gives no idea how much there is; a column that scrolls
+ * with the page is read the way a page is read. Rounded tiles rather than discs, because the
+ * original is a grid of tiles and a name inside a circle is a caption on a swatch.
+ *
+ * Wrapping rather than a lazy grid, because this sits inside a list that already scrolls: a lazy
+ * grid inside a lazy column has no bounded height to lay itself out in, and would either throw or
+ * collapse. The category count is small and fixed, so laying it all out costs nothing.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun CategoryRow(
+internal fun CategoryGrid(
     categories: List<YtmCategory>,
     chosen: YtmCategory?,
     onChoose: (YtmCategory) -> Unit,
@@ -52,72 +69,138 @@ internal fun CategoryRow(
 ) {
     if (categories.isEmpty()) return
 
-    Row(
+    // Read once and handed to every tile, rather than each tile subscribing: forty tiles each
+    // collecting the same flow is forty observers on one value, and the grid recomposes whenever
+    // any of the forty answers.
+    val shelves = SonoraBackend.shelves.collectAsState().value
+
+    FlowRow(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = PAGE_GUTTER),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        maxItemsInEachRow = 2,
+        horizontalArrangement = Arrangement.spacedBy(SHELF_SPACING),
+        verticalArrangement = Arrangement.spacedBy(SHELF_SPACING),
     ) {
         categories.forEach { category ->
-            CategoryChip(
+            CategoryTile(
                 category = category,
+                artwork = shelves.playlists[category.title]
+                    ?.firstNotNullOfOrNull { it.artworkUrl },
                 selected = category.title == chosen?.title,
                 onClick = { onChoose(category) },
+                modifier = Modifier.weight(1f),
             )
         }
     }
 }
 
 /**
- * One category: a circle in its own colour with the name inside it.
+ * One category: a tile with a picture in it and the name over the picture.
  *
- * The name is inside rather than under because the grid it came from puts it inside, and a name
- * under a circle is a caption on a swatch — which is what it looks like when the colours are the
- * same grey, and what it looks like deliberate when they are not.
+ * The picture is borrowed from the first playlist in the category, which is what the category
+ * actually looks like — a grid of forty identical colour blocks is a colour picker, not a place to
+ * go. A category that has not answered yet gets a two-tone gradient built from its own stripe
+ * instead, so every tile has depth from the first frame and the grid never looks half-finished.
+ *
+ * The scrim over the picture is not optional: the covers are photographs, and a name in white over
+ * somebody's holiday is a name nobody can read.
  */
 @Composable
-private fun CategoryChip(
+private fun CategoryTile(
     category: YtmCategory,
+    /** The cover borrowed from the category's first playlist, or null until it has answered. */
+    artwork: String?,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val tint = Color(category.color)
-    // A dark stripe would give a black circle and an invisible name, so it is graded up rather
-    // than used as given.
-    val readable = if (tint.perceivedLuminance() < 0.35f) {
-        Brush.verticalGradient(listOf(tint.lighten(0.18f), tint.lighten(0.06f)))
-    } else {
-        Brush.verticalGradient(listOf(tint.lighten(0.10f), tint))
-    }
+    val picture = rememberArtworkAt(artwork, px = CARD_ART_PX)
 
     Box(
-        modifier = Modifier
-            .size(78.dp)
-            .clip(CircleShape)
-            .background(readable)
-            // Ringed rather than scaled when chosen: a chip that grows pushes every chip after it
+        modifier = modifier
+            .height(96.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(gradientFor(tint))
+            // Ringed rather than scaled when chosen: a tile that grows pushes every tile after it
             // along, so picking one in the middle of a row rearranges the row.
             .then(
                 if (selected) {
-                    Modifier.border(2.dp, MaterialTheme.colorScheme.onBackground, CircleShape)
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.onBackground, RoundedCornerShape(14.dp))
                 } else {
                     Modifier
                 },
             )
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
     ) {
+        if (picture != null) {
+            Image(
+                bitmap = picture,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            // A wash of the category's own colour over the top, so forty borrowed covers still read
+            // as forty *categories* rather than as forty album covers.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to tint.copy(alpha = 0.55f),
+                            1f to tint.copy(alpha = 0.85f),
+                        ),
+                    ),
+            )
+        }
+
+        // And a scrim under the name, so white is white on any cover.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.05f),
+                        0.55f to Color.Black.copy(alpha = 0.35f),
+                        1f to Color.Black.copy(alpha = 0.70f),
+                    ),
+                ),
+        )
+
         Text(
             text = category.title,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.titleMedium,
             color = Color.White,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         )
     }
+}
+
+/**
+ * The tile's own depth, from its own colour.
+ *
+ * Diagonal rather than vertical, and two steps of it, because a flat block of one colour at this
+ * size is a rectangle of paint. The light end is the category's colour lifted and the dark end is
+ * it pushed down, so the two ends still read as the same hue the stripe was.
+ */
+private fun gradientFor(tint: Color): Brush {
+    val dark = Color(
+        red = tint.red * 0.55f,
+        green = tint.green * 0.55f,
+        blue = tint.blue * 0.55f,
+        alpha = 1f,
+    )
+    val light = if (tint.perceivedLuminance() < 0.35f) tint.lighten(0.22f) else tint.lighten(0.12f)
+    return Brush.linearGradient(
+        colors = listOf(light, dark),
+        start = Offset.Zero,
+        end = Offset(600f, 600f),
+    )
 }
 
 /**
@@ -164,9 +247,11 @@ internal fun PlaylistShelf(
  * about to fill with a grid of coloured circles should say so before the circles arrive and not
  * after.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BrowseShelves(
     shelves: Shelves,
+    /** Opens the category's own page. A tile is a door, not a toggle. */
     onChoose: (YtmCategory) -> Unit,
     onOpen: (dev.sonora.ytm.YtmPlaylistRef) -> Unit,
     modifier: Modifier = Modifier,
@@ -187,17 +272,17 @@ internal fun BrowseShelves(
 
     Column(modifier = modifier) {
         ShelfHeader(
-            title = "Something to listen to",
+            title = "Browse all",
             subtitle = "YouTube Music's own shelves",
         )
 
-        CategoryRow(
+        CategoryGrid(
             categories = shelves.categories,
             chosen = chosen,
             onChoose = onChoose,
         )
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(24.dp))
 
         when {
             playlists.isNotEmpty() -> PlaylistShelf(

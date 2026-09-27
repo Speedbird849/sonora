@@ -51,6 +51,7 @@ import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlist
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
+import dev.sonora.ytm.YtmCategory
 import dev.sonora.ytm.YtmPlaylistRef
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.ui.theme.accentText
@@ -69,6 +70,7 @@ fun HomeScreen(
     onOpenPlaylist: (String) -> Unit,
     onImportSpotify: () -> Unit = {},
     onOpenShelfPlaylist: (YtmPlaylistRef) -> Unit = {},
+    onOpenCategory: (YtmCategory) -> Unit = {},
 ) {
     val context = LocalContext.current
     val tracks by SonoraBackend.library.collectAsState()
@@ -204,7 +206,10 @@ fun HomeScreen(
         item {
             BrowseShelves(
                 shelves = shelves,
-                onChoose = { SonoraBackend.loadCategory(it) },
+                onChoose = { category ->
+                    SonoraBackend.loadCategory(category)
+                    onOpenCategory(category)
+                },
                 onOpen = { playlist -> onOpenShelfPlaylist(playlist) },
             )
         }

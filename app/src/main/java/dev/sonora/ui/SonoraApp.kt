@@ -71,6 +71,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -91,6 +92,7 @@ import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
 import dev.sonora.backend.PageRequest
+import dev.sonora.ytm.YtmCategory
 import dev.sonora.ytm.YtmPlaylistRef
 import dev.sonora.backend.PageKind
 import dev.chrisbanes.haze.hazeSource
@@ -511,8 +513,9 @@ private fun MainTabs(state: BackendState) {
         var openPage by remember { mutableStateOf<PageRequest?>(null) }
     // A playlist off one of YouTube Music's own shelves, as opposed to one in the library: no files
     // behind it, so the library's playlist screen is the wrong shape for it.
-    var openRemotePlaylist by remember { mutableStateOf<YtmPlaylistRef?>(null) }
+    val pages = remember { mutableStateListOf<ShelfPage>() }
     val remotePlaylists by SonoraBackend.remotePlaylists.collectAsState()
+    val shelves by SonoraBackend.shelves.collectAsState()
         val playback by SonoraPlayer.state.collectAsState()
         val playlists by SonoraBackend.playlists.collectAsState()
         val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
@@ -560,7 +563,8 @@ private fun MainTabs(state: BackendState) {
             when (tab) {
                 MainTab.Home -> HomeScreen(
                         onImportSpotify = { spotifyImport = true },
-                        onOpenShelfPlaylist = { openRemotePlaylist = it },
+                        onOpenShelfPlaylist = { pages += ShelfPage.Playlist(it) },
+                        onOpenCategory = { pages += ShelfPage.Category(it) },
                         onRunSearch = { term ->
                             // A suggestion on Home is really a pre-filled search, so this is
                             // the whole action: go to Search and run it.
@@ -578,7 +582,8 @@ private fun MainTabs(state: BackendState) {
                     onNeedPeers = { tab = MainTab.Network },
                     // The whole row, so the page opens with the cover the shelf was showing rather
                     // than a gap where it should be.
-                    onOpenPlaylist = { openRemotePlaylist = it },
+                    onOpenPlaylist = { pages += ShelfPage.Playlist(it) },
+                    onOpenCategory = { pages += ShelfPage.Category(it) },
                     onOpenAlbum = { entity ->
                         openPage = PageRequest(
                             name = entity.title,
@@ -626,29 +631,61 @@ private fun MainTabs(state: BackendState) {
             }
         }
 
-        // A playlist off a shelf, over the tab that opened it. Drawn after the page rather than
-        // inside it, because it is a page: the tab underneath has no idea it exists.
-        openRemotePlaylist?.let { playlist ->
-            LaunchedEffect(playlist.browseId) { SonoraBackend.loadRemotePlaylist(playlist.browseId) }
+        // The shelves' own pages, as one stack over the tab that opened them. A stack rather than
+        // two flags because a playlist opened from inside a category has to go back to the
+        // category: with flags it goes back to the tab, and the listener loses the thing they
+        // were looking at by pressing back once too often.
+        if (pages.isNotEmpty()) {
+            BackHandler(enabled = true) { pages.removeAt(pages.lastIndex) }
+        }
 
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    // Opaque, because a page drawn over a page without it is two pages showing
-                    // through each other — the tab's own rows visible between this one's.
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
-            ) {
-                RemotePlaylistScreen(
-                    playlist = playlist,
-                    tracks = remotePlaylists[playlist.browseId].orEmpty(),
-                    onBack = { openRemotePlaylist = null },
-                    onPlayFrom = { index ->
-                        val queue = remotePlaylists[playlist.browseId].orEmpty()
-                        if (index < queue.size) SonoraPlayer.play(context, queue, index)
-                    },
-                )
+        when (val top = pages.lastOrNull()) {
+            is ShelfPage.Category -> {
+                val category = top.category
+                LaunchedEffect(category.title) { SonoraBackend.loadCategory(category) }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                ) {
+                    CategoryScreen(
+                        category = category,
+                        playlists = shelves.playlists[category.title].orEmpty(),
+                        onBack = { pages.removeAt(pages.lastIndex) },
+                        onOpen = { playlist -> pages += ShelfPage.Playlist(playlist) },
+                    )
+                }
             }
+
+            is ShelfPage.Playlist -> {
+                val playlist = top.playlist
+                LaunchedEffect(playlist.browseId) {
+                    SonoraBackend.loadRemotePlaylist(playlist.browseId)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        // Opaque, because a page drawn over a page without it is two pages
+                        // showing through each other.
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                ) {
+                    RemotePlaylistScreen(
+                        playlist = playlist,
+                        tracks = remotePlaylists[playlist.browseId].orEmpty(),
+                        onBack = { pages.removeAt(pages.lastIndex) },
+                        onPlayFrom = { index ->
+                            val queue = remotePlaylists[playlist.browseId].orEmpty()
+                            if (index < queue.size) SonoraPlayer.play(context, queue, index)
+                        },
+                    )
+                }
+            }
+
+            null -> Unit
         }
 
         // The floor the bars stand on, drawn over the page and under everything else. Without it a

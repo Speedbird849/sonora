@@ -68,6 +68,7 @@ import dev.sonora.backend.SearchHit
 import dev.sonora.backend.SearchFolders
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.SearchQueries
+import dev.sonora.ytm.YtmCategory
 import dev.sonora.ytm.YtmEntity
 import dev.sonora.ytm.YtmPlaylistRef
 import dev.sonora.ytm.YtmTrack
@@ -92,6 +93,7 @@ fun SearchScreen(
     onOpenAlbum: (YtmEntity) -> Unit = {},
     onOpenArtist: (YtmEntity) -> Unit = {},
     onOpenPlaylist: (YtmPlaylistRef) -> Unit = {},
+    onOpenCategory: (YtmCategory) -> Unit = {},
     onNeedPeers: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -326,7 +328,12 @@ fun SearchScreen(
                 item(key = "shelves") {
                     BrowseShelves(
                         shelves = shelves,
-                        onChoose = { SonoraBackend.loadCategory(it) },
+                        onChoose = { category ->
+                            // Both: the page opens, and the shelf underneath it fills in behind
+                            // so going back lands on something rather than on a gap.
+                            SonoraBackend.loadCategory(category)
+                            onOpenCategory(category)
+                        },
                         onOpen = onOpenPlaylist,
                     )
                 }
