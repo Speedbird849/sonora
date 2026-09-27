@@ -81,6 +81,15 @@ internal fun SongRow(
     subtitleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     /** Null hides the "already downloaded" mark, for lists where it would be noise. */
     downloadedTint: Color? = MaterialTheme.colorScheme.accentText,
+    /**
+     * Drawn after the metadata and before the overflow.
+     *
+     * The one thing a list may add that the row cannot know about: the library's like button, the
+     * playlist's remove button. A slot rather than another row shape, because the whole point of one
+     * row is that the artwork, the gap and the two text styles are the same everywhere — a second
+     * row for the library would be free to disagree about all four.
+     */
+    trailing: @Composable RowScope.() -> Unit = {},
 ) {
     val tint = if (isCurrent) activeTint else MaterialTheme.colorScheme.onBackground
     val background by animateColorAsState(
@@ -173,6 +182,8 @@ internal fun SongRow(
                     color = subtitleColor,
                 )
             }
+
+            trailing()
 
             if (onMore != null) {
                 Spacer(Modifier.width(8.dp))

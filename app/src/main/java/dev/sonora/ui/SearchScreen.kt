@@ -36,6 +36,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -153,13 +154,13 @@ fun SearchScreen() {
         Text(
             text = "Search",
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp, bottom = 4.dp),
         )
 
-        SearchBar(
+        SearchField(
             query = query,
             onQueryChange = { query = it },
-            onSearch = { SonoraBackend.search(context, query.trim()) },
+            onSubmit = { SonoraBackend.search(context, query.trim()) },
         )
 
         // Ordering only means anything for the peer results, so it is offered only when those are
@@ -206,7 +207,7 @@ fun SearchScreen() {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                                .padding(start = PAGE_GUTTER, end = 8.dp, top = 8.dp, bottom = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -246,7 +247,7 @@ fun SearchScreen() {
                             )
 
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 items(catalogue, key = { it.id }) { album ->
@@ -299,17 +300,11 @@ fun SearchScreen() {
                         searchState.youtube,
                         key = { "ytm:" + it.videoId },
                     ) { track ->
-                        YoutubeRow(
-                            track = track,
-                            onPlay = { SonoraPlayer.play(context, LibraryTrack.fromRemote(track)) },
-                            onQueue = {
-                                SonoraPlayer.play(
-                                    context,
-                                    searchState.youtube.map(LibraryTrack::fromRemote),
-                                    searchState.youtube.indexOf(track),
-                                )
-                            },
-                            onSearchSoulseek = { peerSearch(track) },
+                        SongRow(
+                            track = LibraryTrack.fromRemote(track),
+                            onClick = { SonoraPlayer.play(context, LibraryTrack.fromRemote(track)) },
+                            onMore = { peerSearch(track) },
+                            meta = listOfNotNull(track.artist, track.album).joinToString("  ·  "),
                         )
                     }
                 }
@@ -324,6 +319,11 @@ fun SearchScreen() {
                                 SearchFolders.folderOf(searchState.hits, hit)
                                     .forEach { startDownload(it) }
                             },
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = ROW_DIVIDER_INSET),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outline,
                         )
                     }
                 }
@@ -382,20 +382,17 @@ private fun SearchChip(label: String, selected: Boolean, onClick: () -> Unit) {
         selected = selected,
         onClick = onClick,
         label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+        shape = RoundedCornerShape(12.dp),
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = Color.Transparent,
             labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+            // The accent as a tint rather than as a fill. Three of these side by side is already a
+            // lot of chip; filling them all in the accent turns the row into the loudest thing on
+            // the screen and leaves nothing for the results below it to be louder than.
+            selectedContainerColor = MaterialTheme.colorScheme.accentText.copy(alpha = 0.16f),
+            selectedLabelColor = MaterialTheme.colorScheme.accentText,
         ),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) {
-                MaterialTheme.colorScheme.accentText
-            } else {
-                MaterialTheme.colorScheme.outline
-            },
-        ),
+        border = null,
     )
 }
 
@@ -406,7 +403,7 @@ private fun ChipRow(content: @Composable RowScope.() -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 4.dp),
+            .padding(horizontal = PAGE_GUTTER, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
     )
@@ -456,54 +453,12 @@ internal fun statusNote(
 }
 
 @Composable
-private fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onSearch: () -> Unit,
-) {
-    TextField(
-        value = query,
-        onValueChange = onQueryChange,
-        placeholder = { Text("Songs, albums, artists") },
-        singleLine = true,
-        shape = RoundedCornerShape(percent = 50),
-        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Filled.Clear, contentDescription = "Clear search")
-                }
-            }
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            focusedLeadingIconColor = MaterialTheme.colorScheme.accentText,
-            unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-    )
-}
-
-@Composable
 private fun RecentSearchRow(term: String, onClick: () -> Unit, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(start = 20.dp),
+            .padding(start = PAGE_GUTTER),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -541,85 +496,6 @@ private fun Note(text: String) {
     )
 }
 
-/**
- * One YouTube Music result.
- *
- * Tapping plays it, because that is the whole reason this source is first in the list: the audio
- * arrives without a download. The overflow holds the two things that are *not* playing — queueing it
- * after whatever is going, and going to look for a lossless copy on the network.
- */
-@Composable
-private fun YoutubeRow(
-    track: YtmTrack,
-    onPlay: () -> Unit,
-    onQueue: () -> Unit,
-    onSearchSoulseek: () -> Unit,
-) {
-    var menu by remember { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlay)
-            .padding(start = 20.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Artwork(
-            url = track.artworkUrl,
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-        ) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = listOfNotNull(track.artist, track.album).joinToString("  ·  "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        Box {
-            IconButton(onClick = { menu = true }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "More",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(
-                    text = { Text("Play next") },
-                    onClick = {
-                        menu = false
-                        onQueue()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Search the network for a FLAC") },
-                    onClick = {
-                        menu = false
-                        onSearchSoulseek()
-                    },
-                )
-            }
-        }
-    }
-}
-
 @Composable
 private fun ResultRow(
     hit: SearchHit,
@@ -631,7 +507,7 @@ private fun ResultRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onDownload)
-            .padding(horizontal = 20.dp, vertical = 7.dp),
+            .padding(horizontal = PAGE_GUTTER, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Remote files carry no artwork — the search response has no such field — so this is a

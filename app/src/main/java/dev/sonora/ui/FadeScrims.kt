@@ -91,16 +91,21 @@ internal fun TopFadeScrim(
 /**
  * Transparent at the top, solid at the bottom, easing in.
  *
- * The easing matters more than it looks: a linear ramp spends most of its length nearly invisible,
- * which puts the visible part of the fade hard against the bars and leaves the content above them
- * unprotected. Cubic in puts the transition where the eye is.
+ * The easing matters more than it looks. A linear ramp puts half its opacity change in the top eighth
+ * of the strip, which is a hard edge with a long tail; a strong cubic does the opposite and spends
+ * most of the strip almost transparent, which is worse here — a track row scrolling past the tab
+ * bar stays legible right up to the pill, and the bar stops reading as sitting *in* the page.
+ *
+ * The exponent is chosen for where the strip meets the bar. It wants to be solid over the bar's own
+ * height and have faded to nothing well above it, so that a row is dimmed by the time its title
+ * reaches the glass rather than arriving there at full brightness.
  */
 private fun floorBrush(pageColor: Color): Brush = Brush.verticalGradient(
     colorStops = Array(STOPS) { index ->
         val t = index.toFloat() / (STOPS - 1)
-        t to pageColor.copy(alpha = easeInCubic(t))
+        t to pageColor.copy(alpha = easeIn(t))
     },
 )
 
-/** Slow to start, then firm: the opposite of a linear ramp, and the point of the whole thing. */
-private fun easeInCubic(t: Float): Float = t * t * t
+/** Slow to start, then firm — a gentler curve than a cubic, and the point of the whole thing. */
+private fun easeIn(t: Float): Float = t * t * (3f - 2f * t) / 2f + t * t * t / 2f

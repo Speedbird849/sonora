@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import dev.sonora.backend.LibraryGrouping
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.MusicDirectory
@@ -193,14 +195,14 @@ fun LibraryScreen(
         Text(
             text = "Your Library",
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp, bottom = 4.dp),
         )
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 4.dp),
+                .padding(horizontal = PAGE_GUTTER, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             LibrarySection.entries.forEach { entry ->
@@ -210,20 +212,17 @@ fun LibraryScreen(
                     label = {
                         Text(entry.label, style = MaterialTheme.typography.labelMedium)
                     },
+                    shape = RoundedCornerShape(12.dp),
                     colors = FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        containerColor = Color.Transparent,
                         labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        // A tint rather than a fill: four of these in a row filled in the accent is
+                        // more colour than the list below them gets to be.
+                        selectedContainerColor =
+                            MaterialTheme.colorScheme.accentText.copy(alpha = 0.16f),
+                        selectedLabelColor = MaterialTheme.colorScheme.accentText,
                     ),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = if (section == entry) {
-                            MaterialTheme.colorScheme.accentText
-                        } else {
-                            MaterialTheme.colorScheme.outline
-                        },
-                    ),
+                    border = null,
                 )
             }
         }
@@ -353,6 +352,7 @@ private fun TracksSection(
     onForget: (LibraryTrack) -> Unit,
     scanning: Boolean,
 ) {
+    var pending by remember { mutableStateOf<TrackMenu?>(null) }
     // The scan is still running. Saying "no music found" now would be a claim about a folder nobody
     // has finished reading, and it would be replaced a second later by the music that was there all
     // along — so the placeholders stand in, at the real row metrics, and say nothing at all.
@@ -377,7 +377,7 @@ private fun TracksSection(
             text = if (tracks.size == 1) "1 track" else "${tracks.size} tracks",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp, bottom = 8.dp),
         )
 
         LazyColumn(
@@ -386,36 +386,84 @@ private fun TracksSection(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->
-                TrackRow(
+                val canDelete = track.file?.parentFile?.absolutePath == downloadDirectory
+                val isLiked = track.key in likedKeys
+
+                SongRow(
                     track = track,
-                    isPlaying = playback.isPlaying && playback.track?.file == track.file,
-                    isLiked = track.key in likedKeys,
-                    canDelete = track.file?.parentFile?.absolutePath == downloadDirectory,
-                    onPlay = { SonoraPlayer.play(context, tracks, index) },
-                    onToggleLike = { onToggleLike(track) },
-                    onAddToPlaylist = { onAddToPlaylist(track) },
-                    onDelete = { onDelete(track) },
-                    // Only offered to a track that is not on the device: asking the network for a
-                    // copy of a file already sitting on the phone is not a thing anyone means.
-                    onSearchNetwork = if (track.file != null) {
-                        null
-                    } else {
-                        {
-                            onFindLossless(
-                                SearchQueries.forTrack(track.title, track.artist.orEmpty()),
-                            )
-                        }
-                    },
-                    onRemoveFromLibrary = if (track.remote != null) {
-                        { onForget(track) }
-                    } else {
-                        null
+                    onClick = { SonoraPlayer.play(context, tracks, index) },
+                    isCurrent = playback.isPlaying && playback.track?.key == track.key,
+                    onMore = { pending = TrackMenu(track, canDelete) },
+                    // A streaming track has no bytes to count, so printing its zero would read as an
+                    // empty file rather than as the absence of one.
+                    meta = listOfNotNull(
+                        track.artist,
+                        track.album,
+                        track.file?.let { formatBytes(track.size) },
+                    ).joinToString("  \u00b7  "),
+                    trailing = {
+                        CircleGlyph(
+                            icon = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = if (isLiked) {
+                                "Remove from Liked Songs"
+                            } else {
+                                "Add to Liked Songs"
+                            },
+                            tint = if (isLiked) {
+                                MaterialTheme.colorScheme.accentText
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            onClick = { onToggleLike(track) },
+                        )
                     },
                 )
             }
         }
     }
+
+    pending?.let { menu ->
+        TrackActionsSheet(
+            track = menu.track,
+            canDelete = menu.canDelete,
+            onDismiss = { pending = null },
+            onAddToPlaylist = {
+                pending = null
+                onAddToPlaylist(menu.track)
+            },
+            onToggleLike = {
+                pending = null
+                onToggleLike(menu.track)
+            },
+            onDelete = {
+                pending = null
+                onDelete(menu.track)
+            },
+            onForget = {
+                pending = null
+                onForget(menu.track)
+            },
+            // Only offered to a track that is not on the device: asking the network for a copy of
+            // a file already sitting on the phone is not a thing anyone means.
+            onFindLossless = if (menu.track.file != null) {
+                null
+            } else {
+                {
+                    pending = null
+                    onFindLossless(
+                        SearchQueries.forTrack(
+                            menu.track.title,
+                            menu.track.artist.orEmpty(),
+                        ),
+                    )
+                }
+            },
+        )
+    }
 }
+
+/** What a row's overflow is about to act on. */
+private data class TrackMenu(val track: LibraryTrack, val canDelete: Boolean)
 
 @Composable
 private fun AlbumsSection(
@@ -531,7 +579,7 @@ private fun NewPlaylistRow(onCreate: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onCreate)
-            .padding(horizontal = 20.dp, vertical = 7.dp),
+            .padding(horizontal = PAGE_GUTTER, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tile {
@@ -561,7 +609,7 @@ private fun PlaylistRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 7.dp),
+            .padding(horizontal = PAGE_GUTTER, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tile {
@@ -603,102 +651,6 @@ private fun PlaylistRow(
 }
 
 @Composable
-private fun TrackRow(
-    track: LibraryTrack,
-    isPlaying: Boolean,
-    isLiked: Boolean,
-    canDelete: Boolean,
-    onPlay: () -> Unit,
-    onToggleLike: () -> Unit,
-    onAddToPlaylist: () -> Unit,
-    onDelete: () -> Unit,
-    /** Null when there is nothing to offer — which is every track that is already on the device. */
-    onSearchNetwork: (() -> Unit)? = null,
-    onRemoveFromLibrary: (() -> Unit)? = null,
-) {
-    TrackListRow(
-        track = track,
-        // A streaming track has no bytes to count, and printing its zero would read as an empty
-        // file rather than as the absence of one.
-        meta = listOfNotNull(
-            track.artist,
-            track.album,
-            track.file?.let { formatBytes(track.size) },
-        ).joinToString("  \u00b7  "),
-        isPlaying = isPlaying,
-        onClick = onPlay,
-        trailing = {
-            IconButton(onClick = onToggleLike) {
-                Icon(
-                    imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = if (isLiked) {
-                        "Remove from Liked Songs"
-                    } else {
-                        "Add to Liked Songs"
-                    },
-                    tint = if (isLiked) {
-                        MaterialTheme.colorScheme.accentText
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-
-            // Deleting sits behind a menu rather than on the row: a bare delete icon beside every
-            // track is one mis-tap away from destroying music, which is not recoverable.
-            var menuOpen by remember { mutableStateOf(false) }
-
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(
-                        imageVector = Icons.Filled.MoreVert,
-                        contentDescription = "Track options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Add to playlist") },
-                        onClick = {
-                            menuOpen = false
-                            onAddToPlaylist()
-                        },
-                    )
-                    // The two halves of a library track that has not been downloaded. Streaming
-                    // is the row's own tap, so what is offered here is the half that is not free:
-                    // going to the peer network to look for a lossless copy of the same recording.
-                    if (onSearchNetwork != null) {
-                        DropdownMenuItem(
-                            text = { Text("Get a lossless copy") },
-                            onClick = {
-                                menuOpen = false
-                                onSearchNetwork()
-                            },
-                        )
-                    }
-                    if (track.remote != null && onRemoveFromLibrary != null) {
-                        DropdownMenuItem(
-                            text = { Text("Remove from library") },
-                            onClick = {
-                                menuOpen = false
-                                onRemoveFromLibrary()
-                            },
-                        )
-                    }
-                    if (canDelete) {
-                        DropdownMenuItem(
-                            text = { Text("Delete download") },
-                            onClick = {
-                                menuOpen = false
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            }
-        },
-    )
-}
 
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)

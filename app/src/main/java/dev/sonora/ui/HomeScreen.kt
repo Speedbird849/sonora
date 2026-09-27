@@ -109,7 +109,7 @@ fun HomeScreen(
             Text(
                 text = "Home",
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = 20.dp, top = 8.dp),
+                modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp),
             )
         }
 
@@ -168,7 +168,7 @@ private fun RecentlyPlayedRow(tracks: List<LibraryTrack>) {
         SectionHeader(title = "Recently played", subtitle = "Pick up where you left off")
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->
@@ -198,7 +198,7 @@ private fun Section(
         SectionHeader(title = title, subtitle = subtitle)
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(albums, key = { it.name + it.artist }) { album ->
@@ -232,7 +232,7 @@ private fun PlaylistsRow(
         )
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // The import tile leads, because for anyone arriving from Spotify with a link already
@@ -274,7 +274,7 @@ private fun RecentSearchesRow(history: List<String>, onRunSearch: (String) -> Un
         SectionHeader(title = "Keep looking", subtitle = "Searches you have run")
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(history, key = { it }) { term ->
@@ -300,7 +300,7 @@ private fun DownloadingCard(
     remaining: Int,
     onCancel: () -> Unit,
 ) {
-    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+    Column(modifier = Modifier.padding(horizontal = PAGE_GUTTER)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

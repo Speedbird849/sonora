@@ -510,6 +510,15 @@ private fun MainTabs(state: BackendState) {
         // The page is the blur source. Every frosted surface in the app samples this subtree, so
         // anything drawn outside it is invisible to the glass.
         Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+            // Inset by the status bar only, so a page's first row starts clear of the clock and
+            // then scrolls *under* the frosted bar. Padding for the bar's full height instead would
+            // leave an empty strip above every page — the bar carries nothing, so that strip is
+            // dead space, and the glass only reads as glass once something is behind it.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+            ) {
             when (tab) {
                 MainTab.Home -> HomeScreen(
                         onImportSpotify = { spotifyImport = true },
@@ -547,7 +556,16 @@ private fun MainTabs(state: BackendState) {
                 // there is one.
                 MainTab.Network -> ConnectScreen(state = state)
             }
+            }
         }
+
+        // The bar and the pane it is drawn over. Underneath the page rather than inside it, so the
+        // blur has something to sample.
+        TopBarBlur(hazeState = hazeState, modifier = Modifier.align(Alignment.TopCenter))
+        FrostedTopBar(
+            hazeState = hazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
 
         // The floor the bars stand on, drawn over the page and under everything else. Without it a
         // track row scrolling past the tab bar is still fully opaque right up to the pill's edge,
