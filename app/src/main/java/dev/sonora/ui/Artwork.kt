@@ -36,7 +36,14 @@ private val artworkCache = ConcurrentHashMap<String, ImageBitmap?>()
 /** Catalogue covers, held the same way and for the same reason: the row re-composes as it scrolls. */
 private val coverArtCache = ConcurrentHashMap<String, ImageBitmap?>()
 
-/** Remote artwork, keyed by URL. Same reasoning as the two above. */
+/**
+ * Remote artwork, keyed by URL and the size it was fetched for.
+ *
+ * The size is part of the key because the fetch asks YouTube for a cover of that size: a 120px
+ * decode cached under the bare URL would be handed to a full-screen sleeve that needs four times
+ * the pixels, and the sleeve would be soft with no way to tell why.
+ */
+private fun artKey(url: String, px: Int) = "$px|$url"
 private val remoteArtworkCache = ConcurrentHashMap<String, ImageBitmap?>()
 
 @Composable
@@ -64,7 +71,7 @@ fun rememberArtwork(file: File): ImageBitmap? {
  * caller's background rather than flashing a placeholder and replacing it.
  */
 @Composable
-fun rememberTrackArtwork(track: LibraryTrack): ImageBitmap? {
+fun rememberTrackArtwork(track: LibraryTrack, px: Int = dev.sonora.ui.ROW_ART_PX): ImageBitmap? {
     val remote = track.remote
     if (remote == null) {
         val file = track.file ?: return null
@@ -72,12 +79,13 @@ fun rememberTrackArtwork(track: LibraryTrack): ImageBitmap? {
     }
 
     val url = remote.artworkUrl ?: return null
-    var artwork by remember(url) { mutableStateOf(remoteArtworkCache[url]) }
+    val key = artKey(url, px)
+    var artwork by remember(key) { mutableStateOf(remoteArtworkCache[key]) }
 
-    LaunchedEffect(url) {
-        if (remoteArtworkCache.containsKey(url)) return@LaunchedEffect
-        val loaded = withContext(Dispatchers.IO) { fetchRemoteArtwork(url) }
-        remoteArtworkCache[url] = loaded
+    LaunchedEffect(key) {
+        if (remoteArtworkCache.containsKey(key)) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) { fetchRemoteArtwork(url, px) }
+        remoteArtworkCache[key] = loaded
         artwork = loaded
     }
 
@@ -89,14 +97,16 @@ fun rememberTrackArtwork(track: LibraryTrack): ImageBitmap? {
  * and so has no [rememberTrackArtwork] to go through.
  */
 @Composable
-fun Artwork(url: String?, modifier: Modifier = Modifier) {
-    var image by remember(url) { mutableStateOf(url?.let { remoteArtworkCache[it] }) }
+fun Artwork(url: String?, modifier: Modifier = Modifier, px: Int = dev.sonora.ui.ROW_ART_PX) {
+    val url = url
+    val key = url?.let { artKey(it, px) }
+    var image by remember(key) { mutableStateOf(key?.let { remoteArtworkCache[it] }) }
 
-    LaunchedEffect(url) {
-        if (url == null) return@LaunchedEffect
-        if (remoteArtworkCache.containsKey(url)) return@LaunchedEffect
-        val loaded = withContext(Dispatchers.IO) { fetchRemoteArtwork(url) }
-        remoteArtworkCache[url] = loaded
+    LaunchedEffect(key) {
+        if (url == null || key == null) return@LaunchedEffect
+        if (remoteArtworkCache.containsKey(key)) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) { fetchRemoteArtwork(url, px) }
+        remoteArtworkCache[key] = loaded
         image = loaded
     }
 
@@ -115,16 +125,49 @@ fun Artwork(url: String?, modifier: Modifier = Modifier) {
  * A URL that fails is remembered as absent rather than retried on every recomposition, which is what
  * an unbounded cache of misses would otherwise cause.
  */
-private fun fetchRemoteArtwork(url: String): ImageBitmap? {
-    val request = okhttp3.Request.Builder().url(url).build()
+private fun fetchRemoteArtwork(url: String, px: Int): ImageBitmap? {
+    val request = okhttp3.Request.Builder().url(atSize(url, px)).build()
     return runCatching {
         dev.sonora.ytm.YtmHttp.client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return@use null
             val bytes = response.body?.bytes() ?: return@use null
-            val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+
+            // Sampled against what the image will be *drawn* at, not halved by habit. A flat 2 is
+            // right for a 52dp row and ruinous for a full-screen sleeve — the cover comes back at
+            // half the pixels it is about to be stretched across, and there is no way to get the
+            // rest back without asking for the image again.
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sampleFor(bounds.outWidth, px)
+            }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
         }
     }.getOrNull()
+}
+
+/** The largest power-of-two step that still leaves the bitmap at least [px] wide. */
+private fun sampleFor(sourceWidth: Int, px: Int): Int {
+    if (sourceWidth <= 0 || px <= 0) return 1
+    var sample = 1
+    while (sourceWidth / (sample * 2) >= px) sample *= 2
+    return sample
+}
+
+/**
+ * Asks YouTube for a cover of about [px] pixels across.
+ *
+ * The size is in the URL's path, so a 120px thumbnail stretched over a full-screen sleeve is a
+ * blurry sleeve, and no amount of decoding well can put those pixels back. Rewriting the segment is
+ * the only fix; a service that does not put a size in its URLs simply gets the original.
+ */
+private fun atSize(url: String, px: Int): String {
+    // w544 is the largest square YouTube serves for music artwork, so there is nothing to gain by
+    // asking for more and a request for it is answered with a 404.
+    val wanted = px.coerceIn(64, 544)
+    val sized = Regex("=w\\d+-h\\d+").replace(url, "=w$wanted-h$wanted")
+    // A URL with no size segment, or one whose size segment did not match, keeps its own.
+    return if (sized == url && !url.contains("=w")) url else sized
 }
 
 /**

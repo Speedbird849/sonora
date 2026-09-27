@@ -250,11 +250,16 @@ fun NowPlayingScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                val artwork = rememberTrackArtwork(track)
+                // Asked for at sleeve size rather than row size. The default is a thumbnail sized
+                // for a list row, and stretching one of those over an artwork that fills the screen
+                // is what makes a cover go soft — the pixels are simply not there, and no amount of
+                // decoding more carefully would have found them.
+                val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
                 if (artwork != null) {
                     Image(
                         bitmap = artwork,
                         contentDescription = "Album artwork",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {

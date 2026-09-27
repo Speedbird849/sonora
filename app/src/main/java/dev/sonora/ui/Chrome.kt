@@ -116,6 +116,23 @@ private const val LIBRARY_GRID_MAX_COLUMNS = 5
 data class LibraryGridSpec(val columns: Int, val cardWidth: Dp)
 
 /**
+ * How wide, in pixels, cover art is fetched for each place it appears.
+ *
+ * In pixels rather than dp because these cross the network: a request for 52dp at three densities
+ * is three different requests for what is the same picture, and the number that matters is the one
+ * the decode is sized against. A row is small, a card is not, and the player sleeve is larger than
+ * both — asking for the row's size and stretching it over the sleeve is what makes a cover look
+ * soft, and no amount of careful decoding can put those pixels back.
+ */
+const val ROW_ART_PX = 200
+
+/** A shelf card, drawn at 150dp. */
+const val CARD_ART_PX = 480
+
+/** The player sleeve, which fills most of a screen. */
+const val PLAYER_ART_PX = 720
+
+/**
  * How many covers fit across [available], and how wide each one should be.
  *
  * Adding a column at the narrowest card rather than a fixed count is what makes a grid on a narrow

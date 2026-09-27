@@ -74,6 +74,7 @@ fun HomeScreen(
     val history by SonoraBackend.searchHistory.collectAsState()
     val playHistory by SonoraBackend.playHistory.collectAsState()
     val download by SonoraBackend.download.collectAsState()
+    val playing = SonoraPlayer.state.collectAsState().value.track != null
 
     LaunchedEffect(Unit) {
         SonoraBackend.refreshLibrary(context)
@@ -110,7 +111,7 @@ fun HomeScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
+        contentPadding = listContentPadding(extra = 24.dp, withMiniPlayer = playing),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
@@ -149,7 +150,7 @@ fun HomeScreen(
                         HeroEntry(
                             title = album.name,
                             subtitle = album.artist,
-                            artwork = album.tracks.firstOrNull()?.let { rememberTrackArtwork(it) },
+                            artwork = album.tracks.firstOrNull()?.let { rememberTrackArtwork(it, px = CARD_ART_PX) },
                             tracks = album.tracks,
                         )
                     },
@@ -246,7 +247,7 @@ private fun Section(
                 val first = album.tracks.firstOrNull()
                 val artwork = when {
                     first?.file != null -> rememberArtwork(first.file)
-                    else -> first?.let { rememberTrackArtwork(it) }
+                    else -> first?.let { rememberTrackArtwork(it, px = CARD_ART_PX) }
                 }
 
                 ShelfCard(

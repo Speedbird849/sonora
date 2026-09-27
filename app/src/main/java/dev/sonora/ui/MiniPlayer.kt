@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.IconButton
@@ -52,6 +53,9 @@ import dev.sonora.ui.theme.accentText
 private val GLYPH_SLOT = 40.dp
 
 private val GLYPH_SIZE = 32.dp
+
+/** The spinner that stands in for the play glyph, kept in proportion to it. */
+private val SPINNER_SIZE = 22.dp
 
 /**
  * The gap between the two transport controls.
@@ -140,6 +144,8 @@ private fun Modifier.miniPlayerTrackSwipe(
 internal fun MiniPlayer(
     track: LibraryTrack,
     isPlaying: Boolean,
+    /** True while the stream for this track is still being fetched. */
+    isResolving: Boolean = false,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -178,7 +184,7 @@ internal fun MiniPlayer(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                val artwork = rememberTrackArtwork(track)
+                val artwork = rememberTrackArtwork(track, px = ROW_ART_PX)
                 if (artwork != null) {
                     Image(
                         bitmap = artwork,
@@ -220,15 +226,28 @@ internal fun MiniPlayer(
                 )
             }
 
-            TransportButton(
-                onClick = onPlayPause,
-                tint = MaterialTheme.colorScheme.accentText,
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(GLYPH_SIZE),
-                )
+            // The spinner takes the play button's own slot rather than appearing beside it, so the
+            // bar does not change width when a track starts resolving, and so "busy" replaces
+            // "play" rather than adding a second thing to read.
+            if (isResolving) {
+                Box(Modifier.size(GLYPH_SLOT), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(SPINNER_SIZE),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.accentText,
+                    )
+                }
+            } else {
+                TransportButton(
+                    onClick = onPlayPause,
+                    tint = MaterialTheme.colorScheme.accentText,
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        modifier = Modifier.size(GLYPH_SIZE),
+                    )
+                }
             }
 
             TransportButton(onClick = onNext) {

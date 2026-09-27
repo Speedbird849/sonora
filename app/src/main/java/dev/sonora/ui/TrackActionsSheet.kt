@@ -126,7 +126,7 @@ internal fun SheetTrackHeader(track: LibraryTrack, modifier: Modifier = Modifier
                 .thumbnailBorder(shape),
             contentAlignment = Alignment.Center,
         ) {
-            val artwork = rememberTrackArtwork(track)
+            val artwork = rememberTrackArtwork(track, px = ROW_ART_PX)
             if (artwork != null) {
                 Image(
                     bitmap = artwork,
