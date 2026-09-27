@@ -51,6 +51,7 @@ import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlist
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
+import dev.sonora.ytm.YtmPlaylistRef
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.ui.theme.accentText
 import java.io.File
@@ -67,6 +68,7 @@ fun HomeScreen(
     onRunSearch: (String) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onImportSpotify: () -> Unit = {},
+    onOpenShelfPlaylist: (YtmPlaylistRef) -> Unit = {},
 ) {
     val context = LocalContext.current
     val tracks by SonoraBackend.library.collectAsState()
@@ -106,10 +108,17 @@ fun HomeScreen(
 
     val activeDownload = download as? DownloadState.Downloading
 
-    if (tracks.isEmpty() && playlists.isEmpty() && history.isEmpty()) {
-        GettingStarted(onRunSearch = onRunSearch)
-        return
+    val shelves by SonoraBackend.shelves.collectAsState()
+    LaunchedEffect(Unit) { SonoraBackend.loadShelves() }
+    LaunchedEffect(shelves.categories) {
+        val first = shelves.categories.firstOrNull() ?: return@LaunchedEffect
+        if (shelves.chosen == null) SonoraBackend.loadCategory(first)
     }
+
+    // Whether there is anything of the listener's own. Decided once and used three times — the
+    // heading, the row of downloads, and whether the shelves are the whole page — because a page
+    // that decides it separately each time ends up with a heading over nothing.
+    val hasSomethingOfMine = tracks.isNotEmpty() || playlists.isNotEmpty() || history.isNotEmpty()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -118,7 +127,7 @@ fun HomeScreen(
     ) {
         // The page's own name, and only when there is something under it. A heading over an empty
         // shelf reads as a section that failed to load rather than as one with nothing in it yet.
-        if (recentTracks.isNotEmpty() || activeDownload != null) {
+        if (hasSomethingOfMine) {
             item {
                 Text(
                     text = "Listen now",
@@ -187,6 +196,17 @@ fun HomeScreen(
 
         if (history.isNotEmpty()) {
             item { RecentSearchesRow(history = history, onRunSearch = onRunSearch) }
+        }
+
+        // Last, and always. A page of the listener's own things is the point of this tab, and
+        // somewhere to hear something is the answer to a page of it when there is nothing yet — the
+        // same answer Search gives, because the same question is being asked of both.
+        item {
+            BrowseShelves(
+                shelves = shelves,
+                onChoose = { SonoraBackend.loadCategory(it) },
+                onOpen = { playlist -> onOpenShelfPlaylist(playlist) },
+            )
         }
     }
 }

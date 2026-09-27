@@ -560,6 +560,7 @@ private fun MainTabs(state: BackendState) {
             when (tab) {
                 MainTab.Home -> HomeScreen(
                         onImportSpotify = { spotifyImport = true },
+                        onOpenShelfPlaylist = { openRemotePlaylist = it },
                         onRunSearch = { term ->
                             // A suggestion on Home is really a pre-filled search, so this is
                             // the whole action: go to Search and run it.
