@@ -91,6 +91,7 @@ import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
 import dev.sonora.backend.PageRequest
+import dev.sonora.ytm.YtmPlaylistRef
 import dev.sonora.backend.PageKind
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.HazeState
@@ -508,6 +509,10 @@ private fun MainTabs(state: BackendState) {
         // artist line on the player. Held apart from the two names above because a name alone
         // cannot fetch an artist's songs, and following one is for the songs.
         var openPage by remember { mutableStateOf<PageRequest?>(null) }
+    // A playlist off one of YouTube Music's own shelves, as opposed to one in the library: no files
+    // behind it, so the library's playlist screen is the wrong shape for it.
+    var openRemotePlaylist by remember { mutableStateOf<YtmPlaylistRef?>(null) }
+    val remotePlaylists by SonoraBackend.remotePlaylists.collectAsState()
         val playback by SonoraPlayer.state.collectAsState()
         val playlists by SonoraBackend.playlists.collectAsState()
         val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
@@ -570,6 +575,9 @@ private fun MainTabs(state: BackendState) {
                     )
                 MainTab.Search -> SearchScreen(
                     onNeedPeers = { tab = MainTab.Network },
+                    // The whole row, so the page opens with the cover the shelf was showing rather
+                    // than a gap where it should be.
+                    onOpenPlaylist = { openRemotePlaylist = it },
                     onOpenAlbum = { entity ->
                         openPage = PageRequest(
                             name = entity.title,
@@ -614,6 +622,31 @@ private fun MainTabs(state: BackendState) {
                 // there is one.
                 MainTab.Network -> ConnectScreen(state = state)
             }
+            }
+        }
+
+        // A playlist off a shelf, over the tab that opened it. Drawn after the page rather than
+        // inside it, because it is a page: the tab underneath has no idea it exists.
+        openRemotePlaylist?.let { playlist ->
+            LaunchedEffect(playlist.browseId) { SonoraBackend.loadRemotePlaylist(playlist.browseId) }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    // Opaque, because a page drawn over a page without it is two pages showing
+                    // through each other — the tab's own rows visible between this one's.
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+            ) {
+                RemotePlaylistScreen(
+                    playlist = playlist,
+                    tracks = remotePlaylists[playlist.browseId].orEmpty(),
+                    onBack = { openRemotePlaylist = null },
+                    onPlayFrom = { index ->
+                        val queue = remotePlaylists[playlist.browseId].orEmpty()
+                        if (index < queue.size) SonoraPlayer.play(context, queue, index)
+                    },
+                )
             }
         }
 

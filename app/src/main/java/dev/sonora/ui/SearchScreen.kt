@@ -69,6 +69,7 @@ import dev.sonora.backend.SearchFolders
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.SearchQueries
 import dev.sonora.ytm.YtmEntity
+import dev.sonora.ytm.YtmPlaylistRef
 import dev.sonora.ytm.YtmTrack
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.SearchSource
@@ -90,6 +91,7 @@ fun SearchScreen(
      */
     onOpenAlbum: (YtmEntity) -> Unit = {},
     onOpenArtist: (YtmEntity) -> Unit = {},
+    onOpenPlaylist: (YtmPlaylistRef) -> Unit = {},
     onNeedPeers: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -99,6 +101,15 @@ fun SearchScreen(
     val settings by SonoraBackend.settings.collectAsState()
     val history by SonoraBackend.searchHistory.collectAsState()
     val entities = searchState.entities
+    val shelves by SonoraBackend.shelves.collectAsState()
+
+    // Asked for once the page is on screen rather than at construction: they answer from the
+    // network, and a new install's first frame should be the grid arriving rather than a spinner.
+    LaunchedEffect(Unit) { SonoraBackend.loadShelves() }
+    LaunchedEffect(shelves.categories) {
+        val first = shelves.categories.firstOrNull() ?: return@LaunchedEffect
+        if (shelves.chosen == null) SonoraBackend.loadCategory(first)
+    }
     val sources by SonoraBackend.searchSources.collectAsState()
 
     // Keyed on the committed query so clearing the search clears the box with it, rather than
@@ -117,6 +128,13 @@ fun SearchScreen(
     // Nothing searched yet: the recent queries are the useful thing to show, rather than an
     // instruction to go and do something.
     val showingHistory = searchState.query.isBlank() && !searchState.searching
+
+    // The default page is somewhere to *go*, not a list of what was typed. It gives way to the
+    // recent queries the moment the field is touched, because that is the moment the listener has
+    // decided they are going to type something — and a page of coloured categories under a field
+    // they are reaching for is in the way of the thing they came to do.
+    var fieldFocused by remember { mutableStateOf(false) }
+    val showingShelves = showingHistory && !fieldFocused
 
     // What has been played out of a search, so the page can offer the answer rather than the
     // question. Read here rather than remembered so it survives leaving the tab.
@@ -216,14 +234,16 @@ fun SearchScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = "Search",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp, bottom = 4.dp),
+            style = MaterialTheme.typography.displayLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
         )
 
         SearchField(
             query = query,
             onQueryChange = { query = it },
             onSubmit = { SonoraBackend.search(context, query.trim()) },
+            onFocusChange = { fieldFocused = it },
         )
 
         // Ordering only means anything for the peer results, so it is offered only when those are
@@ -269,7 +289,7 @@ fun SearchScreen(
             // coming back to this page is most likely to want: the thing they already found, with
             // its own cover, one tap from playing again. The queries they typed are the fallback
             // for when there is nothing yet.
-            if (showingHistory && recentTracks.isNotEmpty()) {
+            if (showingHistory && !showingShelves && recentTracks.isNotEmpty()) {
                 item(key = "recent-tracks") {
                     ShelfHeader(
                         title = "Recently played",
@@ -298,7 +318,21 @@ fun SearchScreen(
                 item(key = "recent-tracks-gap") { Spacer(Modifier.height(24.dp)) }
             }
 
-            if (showingHistory) {
+            // The default page, before anyone has touched the field: YouTube Music's own shelves,
+            // so there is somewhere to go rather than an instruction to go. Deliberately under the
+            // field rather than instead of it — the field is still the way in, and a page that hid
+            // it would be a page that has to be tapped twice to do anything.
+            if (showingShelves) {
+                item(key = "shelves") {
+                    BrowseShelves(
+                        shelves = shelves,
+                        onChoose = { SonoraBackend.loadCategory(it) },
+                        onOpen = onOpenPlaylist,
+                    )
+                }
+            }
+
+            if (showingHistory && !showingShelves) {
                 if (history.isEmpty()) {
                     if (recentTracks.isEmpty()) {
                         item { Note("Search to find music, on YouTube Music or the peer network.") }

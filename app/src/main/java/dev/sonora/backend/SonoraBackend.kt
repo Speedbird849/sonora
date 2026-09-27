@@ -19,8 +19,10 @@ import dev.sonora.protocol.server.LoginResponse
 import dev.sonora.service.SonoraService
 import dev.sonora.ytm.YtmBrowse
 import dev.sonora.ytm.YtmCatalog
+import dev.sonora.ytm.YtmCategory
 import dev.sonora.ytm.YtmCatalogSearch
 import dev.sonora.ytm.YtmSearch
+import dev.sonora.ytm.YtmShelves
 import dev.sonora.ytm.YtmTrack
 import java.io.File
 import java.util.UUID
@@ -195,6 +197,38 @@ object SonoraBackend {
     private val _browsed = MutableStateFlow<Map<String, BrowsedPage>>(emptyMap())
 
     val browsed: StateFlow<Map<String, BrowsedPage>> = _browsed.asStateFlow()
+
+    /**
+     * YouTube Music's own shelves, for a page that would otherwise have nothing to show.
+     *
+     * Held apart from [browsed] and asked for separately, because they answer a different question:
+     * that is for a page somebody chose, and these are for a page nobody chose because there was
+     * nothing else to put on it. Asked for once and kept — a listener who has scrolled past a grid
+     * of genres does not wait for it again on the other tab.
+     */
+    private val _shelves = MutableStateFlow(Shelves())
+    val shelves: StateFlow<Shelves> = _shelves.asStateFlow()
+
+    /**
+     * A playlist somebody else made, by the id a shelf row carried.
+     *
+     * Held rather than returned because the page is reached from three shelves and re-read each
+     * time it is opened, and a screen that has to wait for a network answer to know its own title
+     * is a screen that flickers every time it comes back.
+     */
+    private val _remotePlaylists = MutableStateFlow<Map<String, List<LibraryTrack>>>(emptyMap())
+    val remotePlaylists: StateFlow<Map<String, List<LibraryTrack>>> = _remotePlaylists.asStateFlow()
+
+    /** A playlist's tracks, fetched once. Empty until they land, and empty if there are none. */
+    fun loadRemotePlaylist(browseId: String) {
+        if (browseId.isBlank() || _remotePlaylists.value.containsKey(browseId)) return
+
+        scope.launch {
+            val tracks = YtmSearch.parse(YtmBrowse.raw(browseId))
+            Log.d(TAG, "playlist: $browseId -> ${tracks.size} track(s)")
+            _remotePlaylists.update { it + (browseId to tracks.map { track -> LibraryTrack.fromRemote(track) }) }
+        }
+    }
 
     /**
      * Which sources the search screen shows.
@@ -1050,6 +1084,36 @@ object SonoraBackend {
      * The caller watches [browsed] rather than waiting on this, because a screen that is going to
      * show placeholders anyway has nothing to gain from a suspending call.
      */
+    /** The moods and genres, fetched once. */
+    fun loadShelves() {
+        if (_shelves.value.categories.isNotEmpty() || _shelves.value.loading) return
+
+        _shelves.update { it.copy(loading = true) }
+        scope.launch {
+            val categories = YtmShelves.categories()
+            Log.d(TAG, "shelves: ${categories.size} categor(ies)")
+            _shelves.update { it.copy(categories = categories, loading = false) }
+        }
+    }
+
+    /**
+     * The playlists behind one category, fetched once per category.
+     *
+     * Keyed on the title rather than the id because the id is the same for every category and the
+     * differentiator is the `params` beside it — and a grid of forty buttons all sharing one id is
+     * exactly why the key has to include which one was pressed.
+     */
+    fun loadCategory(category: YtmCategory) {
+        if (category.title in _shelves.value.playlists) return
+        _shelves.update { it.copy(chosen = category) }
+
+        scope.launch {
+            val playlists = YtmShelves.categoryPlaylists(category)
+            Log.d(TAG, "shelves: '${category.title}' -> ${playlists.size} playlist(s)")
+            _shelves.update { it.copy(playlists = it.playlists + (category.title to playlists)) }
+        }
+    }
+
     fun browse(browseId: String, kind: PageKind, name: String? = null, artist: String? = null) {
         if (browseId.isBlank() || _browsed.value.containsKey(browseId)) return
 

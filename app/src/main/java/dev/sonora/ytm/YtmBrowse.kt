@@ -73,18 +73,7 @@ object YtmBrowse {
         if (browseId.isBlank()) return Page()
 
         return runCatching {
-            val body = buildJsonObject {
-                put("context", context())
-                put("browseId", JsonPrimitive(browseId))
-            }
-
-            val response: String = YtmHttp.ktor.post(ENDPOINT) {
-                parameter("key", KEY)
-                contentType(ContentType.Application.Json)
-                setBody(body.toString())
-            }.body()
-
-            val root = json.parseToJsonElement(response)
+            val root = raw(browseId)
             val carousels = carousels(root)
 
             Page(
@@ -228,6 +217,27 @@ object YtmBrowse {
             .arr()
             .lastOrNull()
     }?.obj()?.get("url")?.plain()
+
+    /**
+     * The page's own JSON, for a caller that wants to read a part of it this object does not.
+     *
+     * A playlist's tracks are the one thing wanted from a browse that is not an artist or an album,
+     * and they are read by [YtmSearch]'s row parser — so rather than a second parser here, the raw
+     * answer goes to the one that already reads every other page's rows.
+     */
+    suspend fun raw(browseId: String, params: String? = null): JsonElement {
+        val body = buildJsonObject {
+            put("context", context())
+            put("browseId", JsonPrimitive(browseId))
+            if (params != null) put("params", JsonPrimitive(params))
+        }
+        val response: String = YtmHttp.ktor.post(ENDPOINT) {
+            parameter("key", KEY)
+            contentType(ContentType.Application.Json)
+            setBody(body.toString())
+        }.body()
+        return json.parseToJsonElement(response)
+    }
 
     private fun context() = buildJsonObject {
         put(

@@ -252,7 +252,12 @@ object YtmSearch {
             "sectionListRenderer",
             "contents",
         ).arr()) {
+            // Two shelf renderers for the same wrapper: a song or an album page is a
+            // `musicShelfRenderer`, a playlist is a `musicPlaylistShelfRenderer`, and they are the
+            // same shape under two names. Reading only the first is a playlist that reports
+            // ninety-six tracks and none of them.
             section.obj()?.get("musicShelfRenderer").obj()?.let(found::add)
+            section.obj()?.get("musicPlaylistShelfRenderer").obj()?.let(found::add)
         }
 
         root.descend("continuationContents", "musicShelfContinuation").obj()?.let(found::add)

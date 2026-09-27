@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shape
@@ -264,6 +265,15 @@ internal fun SearchField(
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
     placeholder: String = "Songs, albums, artists",
+    /**
+     * Told when the field takes the keyboard, so a page underneath can get out of the way.
+     *
+     * Reported rather than read from the field's own state because the page's decision is about
+     * *intent*: a page of things to browse and a list of what was searched for are both reasonable
+     * answers to "what is this screen for", and which one is right depends on whether the listener
+     * is typing, not on what happens to be rendered.
+     */
+    onFocusChange: (Boolean) -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -339,7 +349,8 @@ internal fun SearchField(
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester),
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { onFocusChange(it.isFocused) },
             )
         }
 
