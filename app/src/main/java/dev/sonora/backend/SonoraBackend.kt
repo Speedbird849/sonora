@@ -114,6 +114,18 @@ object SonoraBackend {
     val library: StateFlow<List<LibraryTrack>> = _library.asStateFlow()
 
     /**
+     * Whether a library scan is in flight.
+     *
+     * A library that is empty because it is being read looks exactly like a library that is empty
+     * because there is nothing in it, and the second reading is the one the listener acts on. The
+     * scan reads a folder and the system's own index, so it is slow enough to be worth telling the
+     * two apart.
+     */
+    private val _scanning = MutableStateFlow(false)
+
+    val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
+
+    /**
      * YouTube Music tracks that have been kept but not downloaded.
      *
      * Held apart from [library] so a save does not have to wait for a filesystem scan, and so the
@@ -190,6 +202,7 @@ object SonoraBackend {
      */
     fun refreshLibrary(context: Context) {
         scope.launch {
+            _scanning.value = true
             val location = MusicDirectory.resolve(context, _settings.value.downloadTreeUri)
             val directory = location.directory
 
@@ -217,6 +230,7 @@ object SonoraBackend {
                 .withSaved(_saved.value)
                 .sortedBy { it.title.lowercase() }
             _library.value = library
+            _scanning.value = false
 
             Log.d(
                 TAG,

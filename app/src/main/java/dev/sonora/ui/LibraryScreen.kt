@@ -241,6 +241,7 @@ fun LibraryScreen(
                     onDelete = { deleteTarget = it },
                     onFindLossless = { onRunSearch(it) },
                     onForget = { SonoraBackend.unsave(context, it) },
+                    scanning = SonoraBackend.scanning.collectAsState().value,
                 )
 
                 LibrarySection.Albums -> AlbumsSection(
@@ -350,7 +351,18 @@ private fun TracksSection(
     /** Takes a query, not a track: the caller turns a track into the search that would find it. */
     onFindLossless: (String) -> Unit,
     onForget: (LibraryTrack) -> Unit,
+    scanning: Boolean,
 ) {
+    // The scan is still running. Saying "no music found" now would be a claim about a folder nobody
+    // has finished reading, and it would be replaced a second later by the music that was there all
+    // along — so the placeholders stand in, at the real row metrics, and say nothing at all.
+    if (scanning && tracks.isEmpty()) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            songListSkeleton(count = 9, keyPrefix = "skeleton:library")
+        }
+        return
+    }
+
     if (tracks.isEmpty()) {
         EmptyState(
             icon = Icons.Filled.MusicNote,

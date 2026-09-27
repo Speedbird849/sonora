@@ -288,6 +288,13 @@ fun SearchScreen() {
                             subtitle = "Plays now; search the network for a lossless copy",
                         )
                     }
+                    // Placeholders for the wait, in place of a section header and nothing under it.
+                    // This is a network search behind another one, and a header with an empty body
+                    // underneath reads as a failure rather than as work in progress.
+                    if (searchState.youtube.isEmpty()) {
+                        songListSkeleton(count = 6, keyPrefix = "skeleton:ytm")
+                    }
+
                     items(
                         searchState.youtube,
                         key = { "ytm:" + it.videoId },
