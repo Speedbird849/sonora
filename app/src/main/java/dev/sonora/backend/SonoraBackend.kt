@@ -336,10 +336,15 @@ object SonoraBackend {
      * the list is what was listened to rather than what was tapped.
      */
     private fun recordPlay(context: Context, track: LibraryTrack) {
+        // Kept before the history is written, so a streamed track exists as a library entry by the
+        // time anything reads the history. Without it, a play of streamed music leaves a key and
+        // nothing behind it: it appears in no shelf, and its album is not among "recently added".
+        track.remote?.let { save(context, it) }
+
         scope.launch {
             val updated = PlayHistory.record(
                 history = _playHistory.value,
-                key = track.key,
+                track = track,
                 at = System.currentTimeMillis(),
             )
             if (updated == _playHistory.value) return@launch
@@ -484,7 +489,7 @@ object SonoraBackend {
     fun addToPlaylist(context: Context, id: String, track: LibraryTrack) {
         // A streaming track is also kept: a playlist entry for something the library has never heard
         // of would resolve to nothing on the next launch, because there is no file behind it.
-        track.remote?.let { save(context, it) }
+        track.remote?.let { save(context, it, playlistIds = listOf(id)) }
         editPlaylists(context) { Playlists.addTrack(it, id, track.key) }
     }
 
@@ -496,8 +501,8 @@ object SonoraBackend {
      * play the same audio over each other.
      */
     /** Keeps one track. Fire-and-forget, because a single save cannot be lost to a race. */
-    fun save(context: Context, track: YtmTrack) {
-        scope.launch { saveAll(context, listOf(track)) }
+    fun save(context: Context, track: YtmTrack, playlistIds: List<String> = emptyList()) {
+        scope.launch { saveAll(context, listOf(track), playlistIds) }
     }
 
     /**
@@ -513,27 +518,20 @@ object SonoraBackend {
      * saved one at a time is thirty-six chances for that, and on a phone it wins every time — the
      * import reported thirty-six tracks added and the store held one.
      */
-    private suspend fun saveAll(context: Context, tracks: List<YtmTrack>) {
+    private suspend fun saveAll(
+        context: Context,
+        tracks: List<YtmTrack>,
+        playlistIds: List<String> = emptyList(),
+    ) {
         if (tracks.isEmpty()) return
 
         withContext(Dispatchers.IO) {
+            val at = System.currentTimeMillis()
             val written = savedWrites.withLock {
-                // De-duplicated by id, and later entries win, so re-saving a track that is already
-                // kept updates its metadata in place rather than adding a second row that plays the
-                // same audio over itself.
-                val merged = LinkedHashMap<String, SavedTrack>()
-                _saved.value.forEach { merged[it.videoId] = it }
-                tracks.forEach { track ->
-                    merged[track.videoId] = SavedTrack(
-                        videoId = track.videoId,
-                        title = track.title,
-                        artist = track.artist,
-                        album = track.album,
-                        artworkUrl = track.artworkUrl,
-                    )
-                }
-
-                val updated = merged.values.toList()
+                // Folded in one at a time through [keep], so re-keeping a track refreshes its row in
+                // place rather than adding a second one that plays the same audio over itself, and
+                // so the cap is applied once at the end of the batch.
+                val updated = tracks.fold(_saved.value) { saved, track -> keep(saved, track, at, playlistIds) }
                 savedTrackStore(context).save(updated)
                 _saved.value = updated
                 updated.size
@@ -543,12 +541,25 @@ object SonoraBackend {
         }
     }
 
-    /** Forgets a kept track that has not been downloaded. */
+    /**
+     * Forgets a kept track, and forgets one the library no longer needs.
+     *
+     * A download cannot do this, and that is worth saying rather than leaving to be discovered: a
+     * file that arrives from the network is identified by its filename and its peer, neither of
+     * which knows anything about YouTube Music. So a kept stream and a downloaded copy of the same
+     * song are two rows, and they stay two — which is honest about where the audio came from, and is
+     * why the like is stored against the stream rather than against the file.
+     */
     fun unsave(context: Context, track: LibraryTrack) {
         val videoId = track.remote?.videoId ?: return
+        forget(context, videoId)
+    }
+
+    /** Drops one kept row, for a video id. The one place a row ever leaves the kept list. */
+    private fun forget(context: Context, vararg videoIds: String) {
         scope.launch {
             savedWrites.withLock {
-                val updated = _saved.value.filterNot { it.videoId == videoId }
+                val updated = _saved.value.filterNot { it.videoId in videoIds }
                 if (updated == _saved.value) return@withLock
 
                 savedTrackStore(context).save(updated)
@@ -558,14 +569,40 @@ object SonoraBackend {
         }
     }
 
+    /**
+     * Loads the kept tracks, then rescans, so the library has them.
+     *
+     * The rescan is here rather than at the call site because the two are separate coroutines and
+     * nothing orders them: a scan that reads the kept list before it has loaded builds a library of
+     * files only, and the streamed tracks do not appear until something else happens to rescan.
+     */
     fun refreshSaved(context: Context) {
-        scope.launch { _saved.value = savedTrackStore(context).load() }
+        scope.launch {
+            _saved.value = savedTrackStore(context).load()
+            refreshLibrary(context)
+        }
     }
 
     /** Serialises every write to the saved-track store. See [saveAll]. */
     private val savedWrites = Mutex()
 
+    /**
+     * Takes a track out of a playlist, and stops counting it as something a playlist holds.
+     *
+     * The cap in [capped] protects playlist members, so a removal that left the membership behind
+     * would keep a track out of the kept list for ever, for a playlist it is no longer in.
+     */
     fun removeFromPlaylist(context: Context, id: String, key: String) {
+        scope.launch {
+            val videoId = key.removePrefix(LibraryTrack.REMOTE_PREFIX)
+            if (videoId != key) {
+                val updated = withoutPlaylist(_saved.value, videoId, id)
+                if (updated != _saved.value) {
+                    savedTrackStore(context).save(updated)
+                    _saved.value = updated
+                }
+            }
+        }
         editPlaylists(context) { Playlists.removeTrack(it, id, key) }
     }
 
@@ -621,7 +658,16 @@ object SonoraBackend {
         DocumentsContract.deleteDocument(context.contentResolver, document)
     }.getOrDefault(false)
 
+    /**
+     * Adds or removes a like.
+     *
+     * A streamed track is kept on the way past, exactly as it is for a playlist. A like is stored as
+     * a key, and a key is not a track: without keeping it, liking something you are streaming adds
+     * a reference to a track the library has never heard of, and Liked Songs comes back with a row
+     * it cannot draw — which is the whole of what a like is supposed to be.
+     */
     fun toggleLiked(context: Context, track: LibraryTrack) {
+        track.remote?.let { save(context, it, playlistIds = listOf(Playlists.LIKED_ID)) }
         editPlaylists(context) { Playlists.toggleLiked(it, track.key) }
     }
 

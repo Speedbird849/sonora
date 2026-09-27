@@ -65,11 +65,12 @@ object LibraryGrouping {
     /**
      * When a track arrived, for "recently added" ordering.
      *
-     * A streaming track has no file and therefore no timestamp, so it is treated as arriving now:
-     * it was just added to the library, which is what the ordering is asking.
+     * A file's own modification time, and for a streaming track the moment it was kept — so a shelf
+     * of both orders by when each thing turned up rather than putting every stream, which has no
+     * file, at the top because the clock was read while the list was being built.
      */
     private fun arrivedAt(track: LibraryTrack): Long =
-        track.file?.lastModified() ?: System.currentTimeMillis()
+        track.file?.lastModified() ?: track.arrivedAt ?: 0L
 
     private fun sharedArtist(tracks: List<LibraryTrack>): String {
         val artists = tracks.map { it.artist.orUnknown(UNKNOWN_ARTIST) }.distinct()

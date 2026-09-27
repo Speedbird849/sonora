@@ -664,9 +664,11 @@ private fun PlaylistsSection(
         item { NewPlaylistRow(onCreate = onCreate) }
 
         items(all, key = { it.id }) { playlist ->
+            val contents = playlist.trackKeys.mapNotNull { byKey[it] }
             PlaylistRow(
                 playlist = playlist,
-                trackCount = playlist.trackKeys.count { it in byKey },
+                trackCount = contents.size,
+                artwork = contents.take(MOSAIC_TRACKS),
                 reserved = playlist.id == Playlists.LIKED_ID,
                 onClick = { onOpen(playlist) },
             )
@@ -703,6 +705,8 @@ private fun NewPlaylistRow(onCreate: () -> Unit) {
 private fun PlaylistRow(
     playlist: Playlist,
     trackCount: Int,
+    /** The first few of its tracks, whose covers are the playlist's own picture. */
+    artwork: List<LibraryTrack>,
     reserved: Boolean,
     onClick: () -> Unit,
 ) {

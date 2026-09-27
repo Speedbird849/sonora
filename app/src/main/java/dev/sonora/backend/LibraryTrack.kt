@@ -41,6 +41,15 @@ data class LibraryTrack(
      * granted tree — where the path is the cheaper answer.
      */
     val contentUri: String? = null,
+    /**
+     * When this track arrived, for anything ordered by recency.
+     *
+     * A file's own timestamp is the answer and is not stored twice; a streamed track has no file and
+     * therefore no timestamp, so this is where the moment it was kept goes. Without it every
+     * streamed track arrives at the same instant — the moment the shelf is asked to sort — and
+     * "recently added" becomes "in whatever order they happened to be in".
+     */
+    val arrivedAt: Long? = null,
 ) {
     /** Stable identity, and what a playlist or a like stores instead of an object. */
     val key: String

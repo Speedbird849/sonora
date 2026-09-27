@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.BoxWithConstraints
+import dev.sonora.backend.asLibraryTrack
 import dev.sonora.backend.DownloadState
 import dev.sonora.backend.LibraryGrouping
 import dev.sonora.backend.LibraryTrack
@@ -99,8 +100,12 @@ fun HomeScreen(
     // Resolved against the library rather than remembered as tracks: the filesystem is the library,
     // so a file that has since been deleted drops out and the rest are current.
     val byKey = remember(tracks) { tracks.associateBy { it.key } }
+    // A streamed track is resolved from the entry itself. The library is the scan, and a stream has
+    // no file for the scan to find, so a "Recently played" row resolved only against it is empty for
+    // everything played from YouTube Music — the row that is meant to be the quickest way back into
+    // a song is the one place the song is not there.
     val recentTracks = remember(playHistory, byKey) {
-        playHistory.mapNotNull { byKey[it.key] }
+        playHistory.mapNotNull { it.asLibraryTrack() ?: byKey[it.key] }
     }
 
     // Liked Songs is a playlist like any other, so it is pinned first rather than shown twice.
@@ -298,11 +303,14 @@ private fun Section(
 @Composable
 private fun PlaylistsRow(
     playlists: List<Playlist>,
-    byKey: List<LibraryTrack>,
+    tracks: List<LibraryTrack>,
     onOpen: (String) -> Unit,
     onImportSpotify: () -> Unit,
 ) {
-    val keys = remember(byKey) { byKey.mapTo(HashSet()) { it.key } }
+    val keys = remember(tracks) { tracks.mapTo(HashSet()) { it.key } }
+    // Every key to its track, so a playlist's cover can be built out of the tracks in it rather
+    // than being an icon: a playlist is a set of records and has no picture of its own.
+    val byKey = remember(tracks) { tracks.associateBy { it.key } }
 
     Column {
         SectionHeader(

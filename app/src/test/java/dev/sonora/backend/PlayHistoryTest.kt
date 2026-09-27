@@ -1,53 +1,99 @@
 package dev.sonora.backend
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import dev.sonora.ytm.YtmTrack
 
+/**
+ * The recently-played list, including the streamed tracks it now carries.
+ *
+ * A key is not a track. Before this, a play of streamed music wrote down a key and nothing else, so
+ * the row that exists to be the fastest way back into a song was a row that could not be drawn —
+ * no title, no cover, and nothing to play.
+ */
 class PlayHistoryTest {
 
-    private val first = PlayedTrack("/music/first.flac", playedAt = 1_000L)
-    private val second = PlayedTrack("/music/second.flac", playedAt = 2_000L)
+    private fun streamed(id: String) = LibraryTrack.fromRemote(
+        YtmTrack(
+            videoId = id,
+            title = "Let It Happen",
+            artist = "Tame Impala",
+            album = "Currents",
+            artworkUrl = "https://example.com/$id.jpg",
+        ),
+    )
 
     @Test
-    fun `the newest track goes first`() {
-        val history = PlayHistory.record(listOf(second), "/music/third.flac", at = 3_000L)
+    fun aStreamedPlayCarriesTheTrack() {
+        val history = PlayHistory.record(emptyList(), streamed("a"), at = 1_000L)
 
-        assertEquals(
-            listOf("/music/third.flac", "/music/second.flac"),
-            history.map { it.key },
+        val entry = history.single()
+        assertEquals("ytm:a", entry.key)
+        assertTrue(entry.isStreamed)
+        assertEquals("Let It Happen", entry.title)
+        assertEquals("Tame Impala", entry.artist)
+        assertEquals("Currents", entry.album)
+    }
+
+    @Test
+    fun theEntryResolvesToAPlayableTrackOnItsOwn() {
+        val entry = PlayHistory.record(emptyList(), streamed("a"), at = 1_000L).single()
+        val track = entry.asLibraryTrack()
+
+        assertEquals("Let It Happen", track?.title)
+        assertTrue(track?.isRemote == true)
+        assertEquals("a", track?.remote?.videoId)
+        assertTrue(track?.playableUri == null || track.playableUri!!.startsWith("ytm:"))
+    }
+
+    @Test
+    fun aDownloadedPlayIsResolvedAgainstTheLibraryInstead() {
+        // Its own file metadata is better than anything recorded at play time, and the file may
+        // since have been deleted — in which case the caller drops the row rather than offering a
+        // track that cannot be played.
+        val downloaded = LibraryTrack(
+            file = java.io.File("/music/Let It Happen.flac"),
+            title = "Let It Happen",
+            artist = "Tame Impala",
+            album = "Currents",
+            size = 4_096L,
         )
+
+        val entry = PlayHistory.record(emptyList(), downloaded, at = 1_000L).single()
+
+        assertFalse(entry.isStreamed)
+        assertNull(entry.asLibraryTrack())
+        assertEquals(downloaded.key, entry.key)
     }
 
     @Test
-    fun `the time it started is kept`() {
-        val history = PlayHistory.record(emptyList(), "/music/first.flac", at = 1_234L)
+    fun playingSomethingAgainMovesItRatherThanAddingASecondCopy() {
+        // One album on repeat would otherwise fill the list with that album and push out everything
+        // else, which is what "Recently played" is for.
+        var history = PlayHistory.record(emptyList(), streamed("a"), at = 1L)
+        history = PlayHistory.record(history, streamed("b"), at = 2L)
+        history = PlayHistory.record(history, streamed("a"), at = 3L)
 
-        assertEquals(1_234L, history.single().playedAt)
+        assertEquals(listOf("ytm:a", "ytm:b"), history.map { it.key })
+        assertEquals(3L, history.first().playedAt)
     }
 
     @Test
-    fun `playing a track again moves it to the front rather than duplicating it`() {
-        val history = PlayHistory.record(listOf(second, first), first.key, at = 3_000L)
+    fun theListStaysBounded() {
+        var history = emptyList<PlayedTrack>()
+        repeat(PlayHistory.MAX + 20) { history = PlayHistory.record(history, streamed("v$it"), at = it.toLong()) }
 
-        assertEquals(listOf(first.key, second.key), history.map { it.key })
+        assertEquals(PlayHistory.MAX, history.size)
+        assertEquals("ytm:v${PlayHistory.MAX + 19}", history.first().key)
     }
 
     @Test
-    fun `a track with no key is not recorded`() {
-        val history = listOf(first)
+    fun aTrackWithNoKeyIsNotRecorded() {
+        val nameless = LibraryTrack(file = null, title = "", artist = null, album = null, size = 0L)
 
-        assertEquals(history, PlayHistory.record(history, "  ", at = 3_000L))
-    }
-
-    @Test
-    fun `the list is capped, dropping the oldest`() {
-        val history = (1..PlayHistory.MAX).map { PlayedTrack("/music/$it.flac", it.toLong()) }
-
-        val recorded = PlayHistory.record(history, "/music/newest.flac", at = 9_000L)
-
-        assertEquals(PlayHistory.MAX, recorded.size)
-        assertEquals("/music/newest.flac", recorded.first().key)
-        // The oldest entry is the one pushed out.
-        assertEquals("/music/${PlayHistory.MAX - 1}.flac", recorded.last().key)
+        assertTrue(PlayHistory.record(emptyList(), nameless, at = 1L).isEmpty())
     }
 }
