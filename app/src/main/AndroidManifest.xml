@@ -26,6 +26,7 @@
         android:maxSdkVersion="32" />
 
     <application
+        android:name=".SonoraApplication"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"

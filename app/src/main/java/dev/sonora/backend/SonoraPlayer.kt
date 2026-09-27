@@ -278,7 +278,12 @@ object SonoraPlayer {
         if (resolved.size >= MAX_RESOLVED) resolved.clear()
 
         return runCatching { YtmStream.resolve(videoId) }
-            .onFailure { Log.w(TAG, "could not resolve ${track.title}: ${it.message}") }
+            // The type and the stack, not just the message: a resolution failure from a library
+            // whose exceptions mostly carry no message at all is otherwise indistinguishable from a
+            // network refusal, and those need completely different fixes.
+            .onFailure {
+                Log.w(TAG, "could not resolve ${track.title}", it)
+            }
             .getOrNull()
             ?.also { resolved[track.key] = it }
     }

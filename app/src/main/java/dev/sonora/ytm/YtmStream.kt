@@ -63,6 +63,19 @@ object YtmStream {
 
     private var repository: PlayerConfigRepository? = null
 
+    /**
+     * The player-config cache, or a failure that says what is wrong.
+     *
+     * A plain `repository!!` reads as a crash with no explanation, and this one is easy to hit: the
+     * resolver is only prepared by [init], so anything that resolves before the Application has run
+     * — a service started by a notification, a test that forgot — takes the `!!` and dies on a
+     * `NullPointerException` with no message. Saying which precondition was missed costs one line
+     * and turns a mystery into a one-line fix.
+     */
+    private fun repository(): PlayerConfigRepository = checkNotNull(repository) {
+        "YtmStream.init(context) has not been called"
+    }
+
     private val logger = InnerTubeLogger { event ->
         if (event.level == InnerTubeLogLevel.DEBUG) return@InnerTubeLogger
         val line = "ITX ${event.tag}: ${event.message}"
@@ -87,13 +100,15 @@ object YtmStream {
 
     private val innerTube = InnerTube(http, logger = logger)
 
+    // Both of these read the repository, so both are only safe after [init]. Kept lazy so that
+    // merely importing this object costs nothing.
     private val cipherService by lazy {
-        YouTubeCipherService(http, RemotePlayerConfigStore(http, repository!!, logger), logger)
+        YouTubeCipherService(http, RemotePlayerConfigStore(http, repository(), logger), logger)
     }
 
     private val extractor by lazy {
         InnerTubeExtractor(
-            configParser = YtConfigParserImpl(http, innerTube, RemotePlayerConfigStore(http, repository!!, logger), logger),
+            configParser = YtConfigParserImpl(http, innerTube, RemotePlayerConfigStore(http, repository(), logger), logger),
             cipherService = cipherService,
             innerTube = innerTube,
             tokenProvider = noTokens,
@@ -106,6 +121,9 @@ object YtmStream {
      *
      * Needs a Context only for the on-disk cache of the cipher configuration; nothing here reaches
      * the network until a track asks to be played.
+     *
+     * Called from [dev.sonora.SonoraApplication], so it has already happened by the time anything
+     * can ask for a stream.
      */
     fun init(context: Context) {
         if (repository != null) return
