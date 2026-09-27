@@ -28,6 +28,19 @@ data class LibraryTrack(
     val remote: YtmTrack? = null,
     /** Where the audio comes from, for the player and for anything that needs a URI. */
     val artworkUrl: String? = null,
+    /**
+     * A `content://` URI for [file], when one exists.
+     *
+     * The path is not enough on its own. A library built from the media index knows a track by its
+     * `DATA` column, which is a real path, and opening that path directly fails on any device with
+     * scoped storage: the app is not allowed to read a file it did not create and cannot name
+     * through the provider. The provider's own URI is the only one that opens, and a track found
+     * that way has to carry it.
+     *
+     * Null for a file the app can read outright — one in its own folder, or one reached through a
+     * granted tree — where the path is the cheaper answer.
+     */
+    val contentUri: String? = null,
 ) {
     /** Stable identity, and what a playlist or a like stores instead of an object. */
     val key: String
@@ -37,6 +50,21 @@ data class LibraryTrack(
 
     /** True when the audio is somewhere on this device and can be opened without a network. */
     val isDownloaded: Boolean get() = file != null
+
+    /**
+     * What the player should open.
+     *
+     * The provider's URI when there is one, because a path that MediaStore knows about is a path
+     * this process may not be allowed to read. A file the app can open itself needs no URI at all,
+     * and handing the player a `file://` for it would be a second way of saying the same thing.
+     */
+    val playableUri: String?
+        get() = when {
+            remote != null -> null
+            contentUri != null -> contentUri
+            file != null -> file.toURI().toString()
+            else -> null
+        }
 
     companion object {
         private const val REMOTE_PREFIX = "ytm:"

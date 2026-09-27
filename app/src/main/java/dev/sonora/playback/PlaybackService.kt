@@ -41,12 +41,13 @@ class PlaybackService : MediaSessionService() {
             // which client that was differs per stream — so the source asks the resolver which one
             // minted this particular URL rather than being built with a single set of them.
             //
-            // Replaces the factory outright rather than wrapping the default one, because a
-            // progressive source is all this ever plays: a local file needs no data source at all,
-            // and a segmented delivery would need one this deliberately does not ask for.
+            // The source is installed for every item rather than only for streams, because
+            // choosing per item is not something this factory can express. What the source can do
+            // is hand anything that is not an HTTP URL back to the platform's own data source —
+            // see [StreamDataSource] — which is what a downloaded track needs.
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(
-                    StreamDataSource.factory { url -> YtmStream.headersFor(url).orEmpty() },
+                    StreamDataSource.factory(this) { url -> YtmStream.headersFor(url).orEmpty() },
                 ),
             )
             .build()

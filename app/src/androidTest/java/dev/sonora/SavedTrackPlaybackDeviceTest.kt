@@ -71,7 +71,7 @@ class SavedTrackPlaybackDeviceTest {
         assertNotNull("a restored track did not resolve: ${track.key}", audio)
         println("RESTORED ${track.key} -> ${audio!!.clientName} ${audio.kbps}kbps")
 
-        val source: DataSource = StreamDataSource.factory { YtmStream.headersFor(it).orEmpty() }
+        val source: DataSource = StreamDataSource.factory(context) { YtmStream.headersFor(it).orEmpty() }
             .createDataSource()
         val length = 98_304
         try {

@@ -72,6 +72,7 @@ object SonoraBackend {
 
     private const val PLAYLISTS_FILE = "playlists.json"
     private const val SAVED_TRACKS_FILE = "saved-tracks.json"
+    private const val RECENT_TRACKS_FILE = "recent-tracks.json"
     private const val SETTINGS_FILE = "settings.json"
     private const val SEARCH_HISTORY_FILE = "searches.json"
     private const val PLAY_HISTORY_FILE = "plays.json"
@@ -149,6 +150,17 @@ object SonoraBackend {
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
 
     /**
+     * Tracks played out of a search, newest first.
+     *
+     * Held next to the query history rather than inside it because they answer different questions:
+     * the strings are "what have I typed", these are "what did I pick". A search page that offers
+     * back the words but not the tracks makes the listener find the same thing twice.
+     */
+    private val _recentTracks = MutableStateFlow<List<RecentTrack>>(emptyList())
+
+    val recentTracks: StateFlow<List<RecentTrack>> = _recentTracks.asStateFlow()
+
+    /**
      * Tracks that have been played, most recent first.
      *
      * Paths rather than tracks: the filesystem is the library, so what is remembered is which file
@@ -206,10 +218,18 @@ object SonoraBackend {
             val location = MusicDirectory.resolve(context, _settings.value.downloadTreeUri)
             val directory = location.directory
 
+            // Asked for first so a scanned file can be given the handle that actually opens it.
+            // Enumerating a folder and being allowed to read what is in it are separate
+            // permissions, and on a device with scoped storage only the second one is worth having.
+            val contentUris = DeviceMusic.contentUrisByPath(context)
+
             val downloaded = directory.listFiles()
                 ?.filter { it.isFile && it.extension.lowercase() in AUDIO_EXTENSIONS }
                 ?.sortedBy { it.name.lowercase() }
-                ?.map { LibraryTrack.from(it, TagReader.read(it)) }
+                ?.map { file ->
+                    LibraryTrack.from(file, TagReader.read(file))
+                        .copy(contentUri = contentUris[file.absolutePath])
+                }
                 .orEmpty()
 
             // The folder scan comes first because a just-downloaded file is not in MediaStore yet:
@@ -606,6 +626,38 @@ object SonoraBackend {
 
     private fun savedTrackStore(context: Context) =
         SavedTrackStore(File(context.filesDir, SAVED_TRACKS_FILE))
+
+    private fun recentTrackStore(context: Context) =
+        RecentTrackStore(File(context.filesDir, RECENT_TRACKS_FILE))
+
+    /**
+     * Remembers a track that was played out of a search, so the search page can offer it again.
+     *
+     * De-duplicated by key, newest first. The same recording reached by two different searches is
+     * one entry — keyed on the track rather than on the words, which is what makes that true.
+     */
+    fun recordRecentTrack(context: Context, track: LibraryTrack) {
+        val recent = track.remote ?: return
+
+        scope.launch {
+            val updated = listOf(
+                RecentTrack(
+                    key = track.key,
+                    title = track.title,
+                    artist = track.artist,
+                    album = track.album,
+                    artworkUrl = recent.artworkUrl,
+                ),
+            ) + _recentTracks.value.filterNot { it.key == track.key }
+
+            recentTrackStore(context).save(updated)
+            _recentTracks.value = updated
+        }
+    }
+
+    fun refreshRecentTracks(context: Context) {
+        scope.launch { _recentTracks.value = recentTrackStore(context).load() }
+    }
 
     private fun settingsStore(context: Context) =
         SettingsStore(File(context.filesDir, SETTINGS_FILE))

@@ -1,10 +1,14 @@
 package dev.sonora.playback
 
+import android.content.Context
 import android.net.Uri
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.HttpDataSource
 import dev.sonora.ytm.YtmHttp
 import java.io.IOException
@@ -33,11 +37,32 @@ import okhttp3.Response
 internal class StreamDataSource(
     /** Asked per open, not held: which client minted a URL is a property of the stream. */
     private val headersFor: (String) -> Map<String, String>,
+    private val context: Context,
 ) : BaseDataSource(/* isNetwork = */ true) {
 
     private var response: Response? = null
 
+    private var opened: Uri? = null
+
+    /**
+     * The source used for anything that is not an HTTP URL.
+     *
+     * This class is installed as the player's data source for *every* item, because a factory
+     * cannot pick per item, and a downloaded track is a `content://` URI that an HTTP client cannot
+     * open. Handing those back here rather than refusing them is what lets one source serve a queue
+     * holding both downloaded files and minted stream URLs.
+     */
+    private var platform: DataSource? = null
+
     override fun open(dataSpec: DataSpec): Long {
+        opened = dataSpec.uri
+
+        if (!isStream(dataSpec.uri)) {
+            val delegate = DefaultDataSource.Factory(context).createDataSource()
+            platform = delegate
+            return delegate.open(dataSpec)
+        }
+
         transferInitializing(dataSpec)
 
         val opened = try {
@@ -82,16 +107,22 @@ internal class StreamDataSource(
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        platform?.let { return it.read(buffer, offset, length) }
+
         val read = response?.body?.source()?.read(buffer, offset, length) ?: -1
         if (read > 0) bytesTransferred(read)
         return read
     }
 
-    override fun getUri(): Uri? = null
+    /** The URI this source was opened for, which the base class and the loader both ask for. */
+    override fun getUri(): Uri? = opened
 
     override fun close() {
+        platform?.close()
+        platform = null
         response?.close()
         response = null
+        opened = null
         transferEnded()
     }
 
@@ -108,7 +139,20 @@ internal class StreamDataSource(
          * stream, not of the player: one queue can hold an iPhone-minted URL and a TV-minted one at
          * the same time, and a factory holding one set of headers would be wrong for the other.
          */
-        fun factory(headersFor: (String) -> Map<String, String>): DataSource.Factory =
-            DataSource.Factory { StreamDataSource(headersFor) }
+        fun factory(
+            appContext: Context,
+            headersFor: (String) -> Map<String, String>,
+        ): DataSource.Factory =
+            DataSource.Factory { StreamDataSource(headersFor, appContext) }
+
+    /**
+     * Whether a URI is one of ours to fetch.
+     *
+     * The check that keeps a downloaded file out of this source. It is an HTTP client with a fixed
+     * set of googlevideo headers, and handed a `content://` URI it cannot open one — so the player
+     * asks this first and sends everything else to the factory that knows how to read it.
+     */
+    fun isStream(uri: Uri): Boolean = uri.scheme == "http" || uri.scheme == "https"
     }
 }
+

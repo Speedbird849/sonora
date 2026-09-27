@@ -50,7 +50,7 @@ class StreamPlaybackDeviceTest {
 
         // Read it through the source the player is handed, not through a fresh client.
         val length = 98_304
-        val source: DataSource = StreamDataSource.factory { YtmStream.headersFor(it).orEmpty() }
+        val source: DataSource = StreamDataSource.factory(context) { YtmStream.headersFor(it).orEmpty() }
             .createDataSource()
         try {
             val declared = source.open(
