@@ -89,12 +89,17 @@ fun NowPlayingScreen(
     onAddToPlaylist: () -> Unit,
     onOpenArtist: (String) -> Unit = {},
     onOpenAlbum: (String) -> Unit = {},
+    /** Raised when something needed the peer network and there was no session to ask. */
+    onNeedPeers: () -> Unit = {},
 ) {
     val playback by SonoraPlayer.state.collectAsState()
     val upNext by SonoraPlayer.upNext.collectAsState()
     // The queue is a panel over the player rather than a page, so it is state here and not a screen
     // the caller has to know about. A listener who opens it is still listening.
     var queueOpen by remember { mutableStateOf(false) }
+    // Said rather than acted on: being moved to a sign-in form from a tap inside a player, with
+    // nothing said, is indistinguishable from the app having decided to sign you out.
+    var connectPrompt by remember { mutableStateOf(false) }
     val track = playback.track ?: return
     // Non-null only while a finger is down on the bar. Held locally so the polled position cannot
     // drag the handle back out from under the drag.
@@ -168,6 +173,16 @@ fun NowPlayingScreen(
         // bitmap as the artwork above it, so there is nothing extra to fetch and no chance of the
         // two disagreeing about what the record looks like.
         ArtworkBackdrop(track = track)
+
+        // Asked of the player itself, so the sheet belongs to the screen that raised it.
+        ConnectToPeersSheet(
+            open = connectPrompt,
+            onConnect = {
+                connectPrompt = false
+                onNeedPeers()
+            },
+            onDismiss = { connectPrompt = false },
+        )
 
         // The queue, over everything. Drawn after the background so it is not behind the sleeve,
         // and before the content so the content is what it replaces.
@@ -441,11 +456,13 @@ fun NowPlayingScreen(
             // buttons invites that confusion.
             PlayerActionRow(
                 onFindLossless = {
-                    val remote = track.remote ?: return@PlayerActionRow
-                    SonoraBackend.search(
+                    // Peers only, never YouTube: what is being asked for is a file that can be
+                    // kept, and a stream above it would be the wrong answer to the same question.
+                    val asked = SonoraBackend.searchPeers(
                         context,
-                        SearchQueries.forTrack(remote.title, remote.artist),
+                        SearchQueries.forTrack(track.title, track.artist.orEmpty()),
                     )
+                    if (!asked) connectPrompt = true
                 },
                 queueOpen = queueOpen,
                 onToggleQueue = { queueOpen = !queueOpen },

@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +90,7 @@ fun SearchScreen(
      */
     onOpenAlbum: (YtmEntity) -> Unit = {},
     onOpenArtist: (YtmEntity) -> Unit = {},
+    onNeedPeers: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val searchState by SonoraBackend.search.collectAsState()
@@ -131,10 +133,24 @@ fun SearchScreen(
     var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
     val playlists by SonoraBackend.playlists.collectAsState()
 
+    // Raised when a file was wanted and there was no session to ask for one. The sheet is asked
+    // before the tab changes, because being moved to a sign-in form with nothing said is the same
+    // as being moved there for no reason.
+    var showConnect by remember { mutableStateOf(false) }
+
     // Asked once, before the first download. Where the files land decides whether they survive
     // uninstalling the app, so it is worth one question rather than a silent default.
     var askingWhere by remember { mutableStateOf(false) }
     var waiting by remember { mutableStateOf<SearchHit?>(null) }
+
+    ConnectToPeersSheet(
+        open = showConnect,
+        onConnect = {
+            showConnect = false
+            onNeedPeers()
+        },
+        onDismiss = { showConnect = false },
+    )
 
     AddToPlaylistFlow(
         track = addTarget,
@@ -177,7 +193,15 @@ fun SearchScreen(
      * being offered for a stream — the two are different things and only one of them is a file.
      */
     fun peerSearch(track: YtmTrack) {
-        SonoraBackend.search(context, SearchQueries.forTrack(track.title, track.artist))
+        // Peers only. A row's overflow asks for a copy that can be kept, and a YouTube row in that
+        // list would be a stream sitting above the files that were wanted.
+        if (!SonoraBackend.searchPeers(
+                context,
+                SearchQueries.forTrack(track.title, track.artist),
+            )
+        ) {
+            showConnect = true
+        }
     }
 
     fun startDownload(hit: SearchHit) {
@@ -499,7 +523,7 @@ internal fun statusNote(
     val youtubeCount = state.youtube.size
     val anyResults = state.hits.isNotEmpty() || youtubeCount > 0 || albumsAndArtistsShown
     val stillLooking = state.searching || state.youtubeLoading
-    val peerLine = "${state.matched} file(s) from ${state.peers} peer(s)"
+    val peerLine = "${state.matched} file(s) from ${state.peers} Soulseek peer(s)"
     val youtubeLine = "$youtubeCount on YouTube Music"
 
     return when {

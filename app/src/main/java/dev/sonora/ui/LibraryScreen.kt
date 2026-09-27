@@ -97,7 +97,11 @@ fun LibraryScreen(
      */
     openPage: PageRequest? = null,
     onClosePage: () -> Unit = {},
+    /** Sends the listener to the sign-in page. Held here because this is the screen that asks. */
+    onNeedPeers: () -> Unit = {},
 ) {
+    // Somewhere to send the listener when a file was wanted and there was no network to ask.
+    var needPeers by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val tracks by SonoraBackend.library.collectAsState()
     val playlists by SonoraBackend.playlists.collectAsState()
@@ -301,6 +305,7 @@ fun LibraryScreen(
                     onForget = { SonoraBackend.unsave(context, it) },
                     onOpenAlbum = { albumName = it },
                     onOpenArtist = { artistName = it },
+                    onNeedPeers = { needPeers = true },
                     scanning = SonoraBackend.scanning.collectAsState().value,
                 )
 
@@ -333,6 +338,15 @@ fun LibraryScreen(
             onConfirm = { SonoraBackend.createPlaylist(context, it) },
         )
     }
+
+    ConnectToPeersSheet(
+        open = needPeers,
+        onConnect = {
+            needPeers = false
+            onNeedPeers()
+        },
+        onDismiss = { needPeers = false },
+    )
 
     AddToPlaylistFlow(
         track = addTarget,
@@ -414,6 +428,7 @@ private fun TracksSection(
     /** Opens the album or artist page the sheet's link rows name. */
     onOpenAlbum: (String) -> Unit,
     onOpenArtist: (String) -> Unit,
+    onNeedPeers: () -> Unit,
     scanning: Boolean,
 ) {
     var pending by remember { mutableStateOf<TrackMenu?>(null) }
@@ -511,12 +526,16 @@ private fun TracksSection(
             } else {
                 {
                     pending = null
-                    onFindLossless(
+                    // Peers only, and the listener told when there is no session: a lossless copy
+                    // is a file on somebody's disk, and there is nowhere else to look for one.
+                    val asked = SonoraBackend.searchPeers(
+                        context,
                         SearchQueries.forTrack(
                             menu.track.title,
                             menu.track.artist.orEmpty(),
                         ),
                     )
+                    if (!asked) onNeedPeers()
                 }
             },
             onPlayNext = {

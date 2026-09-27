@@ -888,24 +888,54 @@ object SonoraBackend {
         if (term.isEmpty()) return
 
         loadYoutube(term)
+        searchPeers(context, term, record = true, youtubeLoading = true)
+    }
+
+    /**
+     * Asks the peer network only, for a file rather than a stream.
+     *
+     * Separate from [search] because the two answer different questions. This one is what "get me a
+     * lossless copy" means: the answer has to be a real file on somebody's disk, and a YouTube row
+     * in the same list would be a stream that plays now and can never be kept — the opposite of
+     * what the listener asked for, sitting above the files they wanted.
+     *
+     * Returns false when there is no session to ask, so the caller can say so rather than leave a
+     * search box standing over a list that will never fill.
+     */
+    fun searchPeers(
+        context: Context,
+        query: String,
+        record: Boolean = true,
+        youtubeLoading: Boolean = false,
+    ): Boolean {
+        val term = query.trim()
+        if (term.isEmpty()) return false
 
         val current = session
         if (current == null) {
             // Nothing to ask the network, so the catalogue answers on its own. A search that
             // returned nothing at all because the session is down would read as "no such music".
-            _search.value = SearchState(query = term, searching = false, youtubeLoading = true)
-            return
+            _search.value = SearchState(
+                query = term,
+                searching = false,
+                youtubeLoading = youtubeLoading,
+            )
+            return false
         }
 
         val tokens = term.lowercase().split(WHITESPACE).filter { it.isNotEmpty() }
-        if (tokens.isEmpty()) return
+        if (tokens.isEmpty()) return false
 
         val peersSeen = ConcurrentHashMap.newKeySet<String>()
 
-        _search.value = SearchState(query = query, searching = true, youtubeLoading = true)
-        Log.d(TAG, "searching: $query")
+        _search.value = SearchState(
+            query = term,
+            searching = true,
+            youtubeLoading = youtubeLoading,
+        )
+        Log.d(TAG, "searching peers: $term")
 
-        recordSearch(context, query)
+        if (record) recordSearch(context, term)
 
         scope.launch {
             // The socket write must not happen on the caller's thread.
@@ -929,7 +959,7 @@ object SonoraBackend {
 
                 _search.update { state ->
                     // A response for an earlier query can still arrive; drop it.
-                    if (state.query != query) return@update state
+                    if (state.query != term) return@update state
 
                     // Deduped because a peer can send more than one response, and duplicate list
                     // keys would crash the UI.
@@ -946,8 +976,10 @@ object SonoraBackend {
             }
 
             delay(SEARCH_WINDOW_MS)
-            _search.update { if (it.query == query) it.copy(searching = false) else it }
+            _search.update { if (it.query == term) it.copy(searching = false) else it }
         }
+
+        return true
     }
 
     /**

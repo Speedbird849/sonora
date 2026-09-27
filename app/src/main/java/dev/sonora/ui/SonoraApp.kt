@@ -586,6 +586,7 @@ private fun MainTabs(state: BackendState) {
                         },
                     )
                 MainTab.Search -> SearchScreen(
+                    onNeedPeers = { tab = MainTab.Network },
                     onOpenAlbum = { entity ->
                         openPage = PageRequest(
                             name = entity.title,
@@ -618,6 +619,7 @@ private fun MainTabs(state: BackendState) {
                         onCloseAlbum = { openAlbumName = null },
                         openPage = openPage,
                         onClosePage = { openPage = null },
+                        onNeedPeers = { tab = MainTab.Network },
                     )
                 MainTab.Settings -> SettingsScreen()
 
@@ -747,6 +749,7 @@ private fun MainTabs(state: BackendState) {
                         tab = MainTab.Library
                         playerOpen = false
                     },
+                    onNeedPeers = { tab = MainTab.Network },
                     onOpenAlbum = { albumName ->
                         openAlbumName = albumName
                         openArtistName = null

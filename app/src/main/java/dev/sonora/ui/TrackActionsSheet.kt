@@ -253,7 +253,11 @@ internal fun TrackActionsSheet(
             onFindLossless?.let { find ->
                 ActionRow(
                     icon = Icons.Filled.CloudDownload,
-                    label = "Get a lossless copy",
+                    // Named for what it fetches and where from, because a row called "Download" on
+                    // a streaming result is ambiguous: a stream is already playing, and what this
+                    // does is go and find the file. The value says which network it will ask, so
+                    // the listener is not left wondering why YouTube is in the list.
+                    label = "Download a FLAC from Soulseek",
                     onClick = find,
                 )
             }
