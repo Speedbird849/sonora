@@ -32,4 +32,14 @@ data class PageRequest(
     val name: String,
     val browseId: String? = null,
     val kind: PageKind,
+    /**
+     * Who made it, where the row that asked for the page said.
+     *
+     * Needed because an album's own page states no credits: its rows carry a title, a length and a
+     * picture, and the artist is on the album. So the album's artist has to come from wherever the
+     * album was named — a search result's second line — or none of its tracks can be read.
+     */
+    val artist: String? = null,
+    /** The album's or artist's own picture, where the row that named it had one. */
+    val artworkUrl: String? = null,
 )

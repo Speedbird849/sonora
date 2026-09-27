@@ -339,36 +339,33 @@ fun SearchScreen(
                 // Registered even while empty. A row added to the top of a list that has already
                 // been laid out makes the list keep what was on top in place, which pushes the new
                 // row above the viewport — and this row always arrives after the search has begun.
-                // Albums and artists, from the same catalogue the songs came from. A shelf
-                // because they are pages rather than rows: tapping one opens it, and a list of
-                // twenty of them would bury the songs above it.
-                item(key = "entities") {
-                    if (showYoutube && (entities.albums.isNotEmpty() || entities.artists.isNotEmpty())) {
-                        Column(modifier = Modifier.padding(bottom = 8.dp)) {
-                            SectionHeader(
-                                title = "Albums and artists",
-                                subtitle = "Straight from YouTube Music; tap to open",
-                            )
+                // Albums and artists, in shelves of their own rather than one shelf of both.
+                //
+                // Two reasons, and the second is the one that bites. They answer separately and
+                // arrive separately, and a row that is half one half the other is *inserted* in the
+                // middle when the second half lands — a lazy list keeps what it was showing in
+                // place, so the shelf quietly scrolls past its own contents and the first thing
+                // the listener sees is whatever arrived second. Two shelves cannot shift each
+                // other. And a heading over each is honest about what arrived.
+                if (showYoutube && entities.albums.isNotEmpty()) {
+                    item(key = "albums") {
+                        EntityShelf(
+                            title = "Albums",
+                            subtitle = "From YouTube Music; tap to open",
+                            entities = entities.albums,
+                            onOpen = onOpenAlbum,
+                        )
+                    }
+                }
 
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(entities.albums, key = { "album:" + it.browseId }) { entity ->
-                                    EntityCard(
-                                        entity = entity,
-                                        onClick = { onOpenAlbum(entity) },
-                                    )
-                                }
-
-                                items(entities.artists, key = { "artist:" + it.browseId }) { entity ->
-                                    EntityCard(
-                                        entity = entity,
-                                        onClick = { onOpenArtist(entity) },
-                                    )
-                                }
-                            }
-                        }
+                if (showYoutube && entities.artists.isNotEmpty()) {
+                    item(key = "artists") {
+                        EntityShelf(
+                            title = "Artists",
+                            subtitle = "From YouTube Music; tap to open",
+                            entities = entities.artists,
+                            onOpen = onOpenArtist,
+                        )
                     }
                 }
 

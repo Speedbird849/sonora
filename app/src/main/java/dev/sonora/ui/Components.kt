@@ -217,6 +217,15 @@ internal fun TrackListRow(
     meta: String,
     onClick: () -> Unit,
     isPlaying: Boolean = false,
+    /**
+     * Drawn in place of the artwork, for a list where every row would otherwise repeat the same
+     * cover.
+     *
+     * An album's own track listing is the case: one picture belongs to all of them, and a column of
+     * twelve identical squares is a column of nothing. A number is also the one thing the listing
+     * has that a list of songs does not.
+     */
+    trackNumber: Int? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -227,6 +236,14 @@ internal fun TrackListRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tile {
+            if (trackNumber != null) {
+                Text(
+                    text = trackNumber.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                return@Tile
+            }
             val artwork = rememberTrackArtwork(track)
             if (artwork != null) {
                 Image(

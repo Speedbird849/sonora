@@ -6,6 +6,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -179,4 +182,32 @@ internal fun EntityCard(
         onClick = onClick,
         modifier = modifier,
     )
+}
+
+/**
+ * A shelf of albums or of artists, under its own heading.
+ *
+ * Separate from the other shelves because these answer separately: a shelf that grew from one
+ * source into two would have to push its own contents down when the second landed.
+ */
+@Composable
+internal fun EntityShelf(
+    title: String,
+    subtitle: String,
+    entities: List<YtmEntity>,
+    onOpen: (YtmEntity) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.padding(bottom = 10.dp)) {
+        SectionHeader(title = title, subtitle = subtitle)
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
+            horizontalArrangement = Arrangement.spacedBy(SHELF_SPACING),
+        ) {
+            items(entities, key = { it.browseId }) { entity ->
+                EntityCard(entity = entity, onClick = { onOpen(entity) })
+            }
+        }
+    }
 }

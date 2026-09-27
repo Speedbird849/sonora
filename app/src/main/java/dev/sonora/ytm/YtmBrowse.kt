@@ -69,7 +69,7 @@ object YtmBrowse {
      * is taking down whichever screen opened it — and that screen is usually showing something else
      * worth keeping.
      */
-    suspend fun page(browseId: String): Page {
+    suspend fun page(browseId: String, albumName: String? = null, albumArtist: String? = null): Page {
         if (browseId.isBlank()) return Page()
 
         return runCatching {
@@ -91,7 +91,9 @@ object YtmBrowse {
                 title = headerText(root, "title"),
                 subtitle = headerText(root, "subtitle"),
                 artworkUrl = headerArtwork(root),
-                tracks = YtmSearch.parse(root).distinctBy { it.videoId }.take(MAX_TRACKS),
+                tracks = YtmSearch.parse(root, defaultAlbum = albumName, defaultArtist = albumArtist)
+                    .distinctBy { it.videoId }
+                    .take(MAX_TRACKS),
                 albums = releases(carousels["Albums"]),
                 singles = releases(carousels["Singles & EPs"]),
             )
@@ -144,6 +146,15 @@ object YtmBrowse {
                 it.descend("tabRenderer", "content", "sectionListRenderer", "contents")
             },
         root.descend("contents", "sectionListRenderer", "contents"),
+        // An album's page is the odd one out: two columns, its shelf in the second, and no header
+        // at all — the name is what the search that found it already said.
+        root.descend(
+            "contents",
+            "twoColumnBrowseResultsRenderer",
+            "secondaryContents",
+            "sectionListRenderer",
+            "contents",
+        ),
     ).flatMap { it.arr() }
 
     /**

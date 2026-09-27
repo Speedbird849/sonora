@@ -1026,6 +1026,7 @@ object SonoraBackend {
         // may yet be a shelf to show.
         scope.launch {
             val albums = YtmCatalogSearch.albums(query)
+            Log.d(TAG, "youtube: ${albums.size} album(s) for $query")
             if (_search.value.query == query) {
                 _search.update { it.copy(entities = it.entities.copy(albums = albums)) }
             }
@@ -1033,6 +1034,7 @@ object SonoraBackend {
 
         scope.launch {
             val artists = YtmCatalogSearch.artists(query)
+            Log.d(TAG, "youtube: ${artists.size} artist(s) for $query")
             if (_search.value.query == query) {
                 _search.update {
                     it.copy(entities = it.entities.copy(artists = artists), youtubeLoading = false)
@@ -1048,7 +1050,7 @@ object SonoraBackend {
      * The caller watches [browsed] rather than waiting on this, because a screen that is going to
      * show placeholders anyway has nothing to gain from a suspending call.
      */
-    fun browse(browseId: String, kind: PageKind) {
+    fun browse(browseId: String, kind: PageKind, name: String? = null, artist: String? = null) {
         if (browseId.isBlank() || _browsed.value.containsKey(browseId)) return
 
         scope.launch {
@@ -1056,7 +1058,14 @@ object SonoraBackend {
             // it: the header, the songs, and the albums underneath. A second call for the albums
             // would buy nothing and would make them arrive under a page that already claimed to
             // be finished.
-            val page = YtmBrowse.page(browseId)
+            // An album's page states no credits of its own — its rows carry a title, a length and
+            // a picture, and nothing else — so the album's own name and artist are handed in from
+            // the row that was tapped. Without them every one of its tracks is thrown away.
+            val page = YtmBrowse.page(
+                browseId,
+                albumName = name.takeIf { kind == PageKind.ALBUM },
+                albumArtist = artist,
+            )
             Log.d(
                 TAG,
                 "browse: $browseId -> ${page.tracks.size} track(s), " +

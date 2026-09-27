@@ -575,6 +575,10 @@ private fun MainTabs(state: BackendState) {
                             name = entity.title,
                             browseId = entity.browseId,
                             kind = PageKind.ALBUM,
+                            // The second line of an album's card is its artist, and an album's page
+                            // repeats it on none of its tracks.
+                            artist = entity.subtitle,
+                            artworkUrl = entity.artworkUrl,
                         )
                         tab = MainTab.Library
                     },
@@ -730,6 +734,8 @@ private fun MainTabs(state: BackendState) {
                                 name = albumName,
                                 browseId = remote.albumId,
                                 kind = PageKind.ALBUM,
+                                artist = remote.artist,
+                                artworkUrl = remote.artworkUrl,
                             )
                         }
                         tab = MainTab.Library

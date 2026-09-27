@@ -12,6 +12,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -176,11 +179,27 @@ object YtmSearch {
     }
 
     /** Reads the songs shelf out of the tabs and off the rows. */
-    internal fun parse(root: JsonElement): List<YtmTrack> {
+    /**
+     * The tracks in a response.
+     *
+     * [defaultArtist] and [defaultAlbum] are for an album's own page, whose rows carry a title, a
+     * length and a picture and *nothing else* — the credits are on the album, not repeated on
+     * every one of its twelve tracks. Without them such a row has no artist and is thrown away, and
+     * the album reports that it is empty.
+     */
+    internal fun parse(
+        root: JsonElement,
+        defaultArtist: String? = null,
+        defaultAlbum: String? = null,
+    ): List<YtmTrack> {
         val tracks = mutableListOf<YtmTrack>()
         for (shelf in shelves(root)) {
             for (row in shelf["contents"].arr()) {
-                parseRow(row.obj()?.get("musicResponsiveListItemRenderer"))?.let(tracks::add)
+                parseRow(
+                    element = row.obj()?.get("musicResponsiveListItemRenderer"),
+                    defaultArtist = defaultArtist,
+                    defaultAlbum = defaultAlbum,
+                )?.let(tracks::add)
             }
         }
         return tracks.distinctBy { it.videoId }
@@ -224,6 +243,18 @@ object YtmSearch {
             }
         }
 
+        // An album's page is the odd one out: two columns, no tabs, and its shelf in the second
+        // one. Read only the two tabbed shapes and every album reports that it has no tracks.
+        for (section in root.descend(
+            "contents",
+            "twoColumnBrowseResultsRenderer",
+            "secondaryContents",
+            "sectionListRenderer",
+            "contents",
+        ).arr()) {
+            section.obj()?.get("musicShelfRenderer").obj()?.let(found::add)
+        }
+
         root.descend("continuationContents", "musicShelfContinuation").obj()?.let(found::add)
 
         return found
@@ -240,7 +271,11 @@ object YtmSearch {
      * a search row, an album page and a playlist row all lay the same fields out differently, and
      * a spacer column is sometimes sitting where the credits were in the last shape seen.
      */
-    internal fun parseRow(element: JsonElement?): YtmTrack? {
+    internal fun parseRow(
+        element: JsonElement?,
+        defaultArtist: String? = null,
+        defaultAlbum: String? = null,
+    ): YtmTrack? {
         val row = element.obj() ?: return null
         val videoId = row.descend("playlistItemData", "videoId").str() ?: return null
 
@@ -251,27 +286,46 @@ object YtmSearch {
         val credits = columns.flatMap { it.runs() }
         val artistRun = credits.firstOrNull { it.pageType == "MUSIC_PAGE_TYPE_ARTIST" }
         val albumRun = credits.firstOrNull { it.pageType == "MUSIC_PAGE_TYPE_ALBUM" }
-        if (artistRun == null || artistRun.text.isBlank()) return null
+        val artist = artistRun?.text?.takeIf { it.isNotBlank() } ?: defaultArtist ?: return null
 
         // The unlinked run that parses as a runtime, and nothing else: the separators between the
-        // credits are unlinked too, and neither " • " nor a year is going to parse as "M:SS".
-        val runtime = credits.firstOrNull { it.pageType == null && it.text.secondsOrNull() != null }
+        // credits are unlinked too, and neither " • " nor a year is going to parse as "M:SS". An
+        // album's page keeps the length in a pinned column instead of in the credits, so that is
+        // read too — it is the only length such a row carries.
+        val runtime: Runtime? = credits
+            .firstOrNull { it.pageType == null && it.text.secondsOrNull() != null }
+            ?.let { Runtime(it.text, it.text) }
+            ?: row["fixedColumns"].arr().firstNotNullOfOrNull { column ->
+                column.descend("musicResponsiveListItemFixedColumnRenderer", "text", "simpleText")
+                    .str()
+                    ?.takeIf { it.secondsOrNull() != null }
+                    ?.let { Runtime(it, it) }
+            }
 
         return YtmTrack(
             videoId = videoId,
             title = title.trim(),
-            artist = artistRun.text.trim(),
-            artistId = artistRun.browseId,
-            album = albumRun?.text?.trim(),
+            artist = artist.trim(),
+            artistId = artistRun?.browseId,
+            album = albumRun?.text?.trim() ?: defaultAlbum,
             albumId = albumRun?.browseId,
             artworkUrl = row.descend(
                 "thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails",
             ).arr().mapNotNull { it.obj()?.get("url").str() }.lastOrNull(),
-            durationSec = runtime?.text?.secondsOrNull(),
+            durationSec = runtime?.let { it.text.secondsOrNull() ?: it.raw.secondsOrNull() },
         )
     }
 
     private data class Run(val text: String, val pageType: String?, val browseId: String?)
+
+    /**
+     * A length, however it was written.
+     *
+     * [raw] is the text as it stands and [text] is the run it came from, which for an album's page
+     * is a bare string in a pinned column rather than a run in the credits. Both are the same
+     * number; keeping them apart is what lets one reader take either without the other guessing.
+     */
+    private data class Runtime(val raw: String, val text: String)
 
     /**
      * The text runs of one flex column.

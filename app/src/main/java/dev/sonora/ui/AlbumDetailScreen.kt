@@ -42,6 +42,14 @@ fun AlbumDetailScreen(
     onBack: () -> Unit,
     onPlayFrom: (Int) -> Unit,
     onFindMore: (String) -> Unit,
+    /**
+     * The album's own cover, where it is known.
+     *
+     * Passed in rather than taken off the first track because a page fetched from YouTube Music
+     * has no local file behind it, and the search that found the album already has the right
+     * picture — which is the album's, not whichever track happened to be listed first.
+     */
+    artworkUrl: String? = null,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -69,7 +77,8 @@ fun AlbumDetailScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                val artwork = album.tracks.firstOrNull()?.let { rememberTrackArtwork(it) }
+                val artwork = rememberArtworkAt(artworkUrl, px = CARD_ART_PX)
+                    ?: album.tracks.firstOrNull()?.let { rememberTrackArtwork(it, px = CARD_ART_PX) }
                 if (artwork != null) {
                     Image(
                         bitmap = artwork,
@@ -153,6 +162,9 @@ fun AlbumDetailScreen(
             itemsIndexed(album.tracks, key = { _, track -> track.key }) { index, track ->
                 TrackListRow(
                     track = track,
+                    // The album has one picture and the listing has twelve rows, so the rows are
+                    // numbered rather than each carrying a copy of the same cover.
+                    trackNumber = index + 1,
                     meta = listOfNotNull(track.artist, track.album).joinToString("  \u00b7  "),
                     onClick = { onPlayFrom(index) },
                 )

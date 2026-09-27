@@ -121,9 +121,14 @@ fun LibraryScreen(
     // The page somebody opened from elsewhere. Asked for once per request and then held, because
     // the answer is cached on the backend and a recomposition must not turn into another request.
     val browsed by SonoraBackend.browsed.collectAsState()
-    LaunchedEffect(openPage?.browseId) {
+    LaunchedEffect(openPage?.browseId, openPage?.artist) {
         val page = openPage ?: return@LaunchedEffect
-        SonoraBackend.browse(page.browseId ?: return@LaunchedEffect, page.kind)
+        SonoraBackend.browse(
+            browseId = page.browseId ?: return@LaunchedEffect,
+            kind = page.kind,
+            name = page.name,
+            artist = page.artist,
+        )
     }
     var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
     var deleteTarget by remember { mutableStateOf<LibraryTrack?>(null) }
@@ -193,6 +198,9 @@ fun LibraryScreen(
             },
             onPlayFrom = { index -> SonoraPlayer.play(context, album.tracks, index) },
             onFindMore = onRunSearch,
+            // The cover belongs to the album, and the search that named it already had it. Its own
+            // tracks have no file and no picture of their own to borrow.
+            artworkUrl = openPage?.artworkUrl,
         )
         return
     }
