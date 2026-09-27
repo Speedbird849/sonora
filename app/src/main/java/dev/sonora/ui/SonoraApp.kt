@@ -530,14 +530,14 @@ private fun MainTabs(state: BackendState) {
         // The page is the blur source. Every frosted surface in the app samples this subtree, so
         // anything drawn outside it is invisible to the glass.
         Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
-            // Inset by the status bar only, so a page's first row starts clear of the clock and
-            // then scrolls *under* the frosted bar. Padding for the bar's full height instead would
-            // leave an empty strip above every page — the bar carries nothing, so that strip is
-            // dead space, and the glass only reads as glass once something is behind it.
+            // Inset by the bar's whole height, so a page's first element starts under the bar
+            // rather than inside it. The bar carries the wordmark, so the band is the header
+            // rather than dead space, and a heading that began underneath the bar was invisible
+            // for as long as the page sat still.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding(),
+                    .padding(top = topBarContentPadding()),
             ) {
             when (tab) {
                 MainTab.Home -> HomeScreen(

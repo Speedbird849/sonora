@@ -1,32 +1,32 @@
 package dev.sonora.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.sonora.backend.MusicDirectory
 import dev.sonora.backend.SonoraBackend
-import dev.sonora.ui.theme.accentText
 
 @Composable
 fun SettingsScreen() {
@@ -79,72 +79,59 @@ fun SettingsScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = listBottomPadding(withMiniPlayer = false)),
     ) {
         Text(
             text = "Settings",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+            style = MaterialTheme.typography.displayLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
         )
 
-        SectionTitle("Library")
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = false) {}
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Include this device's music", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    text = "Show music from the rest of the device, not only what Sonora " +
-                        "downloaded.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = settings.includeDeviceMusic,
-                onCheckedChange = { SonoraBackend.setIncludeDeviceMusic(context, it) },
+        SettingsGroup(header = "Library") {
+            SettingsRow(
+                icon = Icons.Filled.LibraryMusic,
+                title = "Include this device's music",
+                subtitle = "Show music from the rest of the device, not only what Sonora " +
+                    "downloaded.",
+                trailing = {
+                    SettingSwitch(settings.includeDeviceMusic) {
+                        SonoraBackend.setIncludeDeviceMusic(context, it)
+                    }
+                },
+                onClick = {
+                    SonoraBackend.setIncludeDeviceMusic(context, !settings.includeDeviceMusic)
+                },
             )
         }
 
-        SectionTitle("Storage")
-
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-            Text("Download folder", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = downloads.directory.absolutePath,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = if (settings.downloadTreeUri != null) {
-                    "Files here belong to you, so they stay if Sonora is uninstalled."
-                } else {
-                    "Files Sonora creates here are deleted if Sonora is uninstalled. Choose a " +
-                        "folder to keep them."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (settings.downloadTreeUri != null) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
-                modifier = Modifier.padding(top = 4.dp),
+        SettingsGroup(
+            header = "Storage",
+            footer = if (settings.downloadTreeUri != null) {
+                "Files here belong to you, so they stay if Sonora is uninstalled."
+            } else {
+                "Files Sonora creates here are deleted if Sonora is uninstalled. Choose a folder " +
+                    "to keep them."
+            },
+            footerIsWarning = settings.downloadTreeUri == null,
+        ) {
+            SettingsRow(
+                icon = Icons.Filled.Folder,
+                title = "Download folder",
+                subtitle = downloads.directory.absolutePath,
             )
 
-            Row(modifier = Modifier.padding(top = 8.dp)) {
-                TextButton(onClick = { pickFolder.launch(null) }) { Text("Choose folder") }
+            RowDivider()
+
+            SettingsActions {
+                OutlinedButton(onClick = { pickFolder.launch(null) }) {
+                    Text("Choose folder")
+                }
 
                 if (settings.downloadTreeUri != null) {
-                    TextButton(
-                        onClick = { SonoraBackend.setDownloadTree(context, null) },
-                        modifier = Modifier.padding(start = 8.dp),
-                    ) {
-                        Text("Use default", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { SonoraBackend.setDownloadTree(context, null) }) {
+                        Text("Use default")
                     }
                 }
             }
@@ -155,60 +142,57 @@ fun SettingsScreen() {
                 Text(
                     text = "Shared storage isn't writable, so downloads are being kept in " +
                         "Sonora's private storage instead.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 4.dp),
+                    maxLines = 5,
+                    modifier = Modifier.padding(
+                        start = ROW_INSET,
+                        end = ROW_INSET,
+                        bottom = 12.dp,
+                    ),
                 )
             }
         }
 
-        SectionTitle("Sharing")
-
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-            Text("Shared folder", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = shared.directory.absolutePath,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "Other users can browse and download what is in here.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
+        SettingsGroup(
+            header = "Sharing",
+            footer = "Other users can browse and download what is in here.",
+        ) {
+            SettingsRow(
+                icon = Icons.Filled.Share,
+                title = "Shared folder",
+                subtitle = shared.directory.absolutePath,
             )
 
-            Row(modifier = Modifier.padding(top = 8.dp)) {
-                TextButton(onClick = { pickShareFolder.launch(null) }) { Text("Choose folder") }
+            RowDivider()
+
+            SettingsActions {
+                OutlinedButton(onClick = { pickShareFolder.launch(null) }) {
+                    Text("Choose folder")
+                }
 
                 if (settings.shareTreeUri != null) {
-                    TextButton(
-                        onClick = { SonoraBackend.setShareTree(context, null) },
-                        modifier = Modifier.padding(start = 8.dp),
-                    ) {
-                        Text("Use downloads", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { SonoraBackend.setShareTree(context, null) }) {
+                        Text("Use downloads")
                     }
                 }
             }
         }
 
-        SectionTitle("Connection")
-
-        TextButton(
-            onClick = { SonoraBackend.disconnect(context) },
-            modifier = Modifier.padding(horizontal = 8.dp),
+        SettingsGroup(
+            header = "Connection",
+            footer = "Sonora keeps its own settings; unlinking only ends the session.",
         ) {
-            Text("Disconnect", color = MaterialTheme.colorScheme.error)
+            SettingsActionBox {
+                TextButton(onClick = { SonoraBackend.disconnect(context) }) {
+                    Text(
+                        text = "Disconnect",
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.accentText,
-        modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 4.dp),
-    )
 }

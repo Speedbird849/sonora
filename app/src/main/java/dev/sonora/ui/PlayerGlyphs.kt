@@ -59,18 +59,35 @@ internal fun CircleGlyph(
     size: Dp = 34.dp,
     glyphSize: Dp = 19.dp,
     active: Boolean = false,
+    /** Overridden by [disc]; a list has no white on it to tint for. */
+    tint: Color? = null,
+    /**
+     * Whether the control sits on a translucent disc.
+     *
+     * On the player, yes, because it floats over artwork and needs a surface of its own to be
+     * legible against whatever the record looks like. In a list, no: the row already has a
+     * background, and a disc there is a grey blob on every line that competes with the artwork it
+     * sits beside. The target is 36dp either way, so a bare control is still a comfortable target.
+     */
+    disc: Boolean = true,
 ) {
-    val disc by animateColorAsState(
-        targetValue = Color.White.copy(alpha = if (active) DISC_ACTIVE else DISC_IDLE),
+    val fill by animateColorAsState(
+        targetValue = when {
+            !disc -> Color.Transparent
+            active -> Color.White.copy(alpha = DISC_ACTIVE)
+            else -> Color.White.copy(alpha = DISC_IDLE)
+        },
         animationSpec = tween(180),
         label = "glyphDisc",
     )
+
+    val ink = tint ?: if (disc) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(disc)
+            .background(fill)
             // No ripple: the disc already brightens, and a ripple on top of a state change is two
             // answers to one tap.
             .clickable(
@@ -97,6 +114,8 @@ internal fun LikeGlyph(
     liked: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    disc: Boolean = true,
+    tint: Color? = null,
 ) {
     CircleGlyph(
         icon = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
@@ -108,6 +127,8 @@ internal fun LikeGlyph(
         onClick = onClick,
         active = liked,
         modifier = modifier,
+        disc = disc,
+        tint = tint,
     )
 }
 

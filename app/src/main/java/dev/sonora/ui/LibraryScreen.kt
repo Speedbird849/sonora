@@ -391,6 +391,12 @@ private fun TracksSection(
                             liked = isLiked,
                             onClick = { onToggleLike(track) },
                             modifier = Modifier.size(36.dp),
+                            disc = false,
+                            tint = if (isLiked) {
+                                MaterialTheme.colorScheme.accentText
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     },
                 )

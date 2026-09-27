@@ -210,6 +210,8 @@ internal fun SongRow(
                     icon = Icons.Filled.MoreVert,
                     contentDescription = "More",
                     onClick = onMore,
+                    modifier = Modifier.size(36.dp),
+                    disc = false,
                 )
             }
         }
