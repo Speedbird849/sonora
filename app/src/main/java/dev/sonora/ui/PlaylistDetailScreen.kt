@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlist
+import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.Playlists
 
 /**
@@ -62,6 +64,10 @@ fun PlaylistDetailScreen(
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
+    // The floating bars are only sometimes taller than usual, and a list has to reserve room for
+    // whichever is on screen rather than for both at once.
+    val playing = SonoraPlayer.state.collectAsState().value.track != null
+
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -157,7 +163,10 @@ fun PlaylistDetailScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                contentPadding = PaddingValues(
+                    top = 8.dp,
+                    bottom = listBottomPadding(playing) + 16.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->

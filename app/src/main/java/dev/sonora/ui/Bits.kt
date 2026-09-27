@@ -415,6 +415,31 @@ internal fun CircleGlyph(
     }
 }
 
-/** Padding values that leave room for the floating bars at the foot of the page. */
-internal fun listContentPadding(bottom: Dp): PaddingValues =
-    PaddingValues(bottom = bottom)
+/**
+ * How much room the floating bars take at the foot of a page.
+ *
+ * Measured rather than guessed: the bar is its own height plus the system navigation inset, and the
+ * mini player adds its own above that. A list that does not reserve this much has its last rows
+ * sitting under the glass, where they are both unreachable and still visible — the worst of both.
+ */
+private val BARS_HEIGHT: Dp = 78.dp
+
+private val MINI_PLAYER_HEIGHT: Dp = 64.dp
+
+/** The gap between the mini player and the tab bar, plus a little for the fade above them. */
+private val BARS_CLEARANCE: Dp = 28.dp
+
+/**
+ * The bottom padding a scrolling list needs to keep its last row clear of the floating bars.
+ *
+ * [withMiniPlayer] because the bar is only sometimes there, and a list that reserved for it
+ * permanently would leave a dead band at the foot of every page with nothing playing.
+ */
+@Composable
+internal fun listBottomPadding(withMiniPlayer: Boolean): Dp =
+    BARS_HEIGHT + BARS_CLEARANCE + if (withMiniPlayer) MINI_PLAYER_HEIGHT else 0.dp
+
+/** The same, as content padding, for a list that wants a little more of its own below that. */
+@Composable
+internal fun listContentPadding(extra: Dp = 16.dp, withMiniPlayer: Boolean = false): PaddingValues =
+    PaddingValues(bottom = listBottomPadding(withMiniPlayer) + extra)

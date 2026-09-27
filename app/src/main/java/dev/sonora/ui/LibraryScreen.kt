@@ -382,7 +382,7 @@ private fun TracksSection(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = listContentPadding(withMiniPlayer = playback.track != null),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->

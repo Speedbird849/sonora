@@ -78,6 +78,7 @@ fun SearchScreen() {
     val context = LocalContext.current
     val searchState by SonoraBackend.search.collectAsState()
     val download by SonoraBackend.download.collectAsState()
+    val playing = SonoraPlayer.state.collectAsState().value.track != null
     val settings by SonoraBackend.settings.collectAsState()
     val history by SonoraBackend.searchHistory.collectAsState()
     val catalogue by SonoraBackend.catalogue.collectAsState()
@@ -198,7 +199,10 @@ fun SearchScreen() {
 
         statusNote(searchState, showSoulseek, showYoutube, catalogueShown)?.let { Note(it) }
 
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = listContentPadding(withMiniPlayer = playing),
+        ) {
             if (showingHistory) {
                 if (history.isEmpty()) {
                     item { Note("Search the Soulseek network to find music.") }
