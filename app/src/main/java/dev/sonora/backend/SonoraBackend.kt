@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -400,8 +402,9 @@ object SonoraBackend {
         }
 
         // Kept outside the edit above, which is one atomic write: a save that failed would otherwise
-        // leave a playlist whose entries all point at nothing.
-        tracks.forEach { track -> track.remote?.let { save(context, it) } }
+        // leave a playlist whose entries all point at nothing. All of them in one call, because
+        // saving them one at a time is a read-modify-write per track and they race.
+        saveAll(context, tracks.mapNotNull { it.remote })
 
         Log.d(TAG, "imported '${name}': ${tracks.size} track(s) as $id")
         return id
@@ -421,20 +424,50 @@ object SonoraBackend {
      * second row, so a search that found the same recording twice leaves one track, not two that
      * play the same audio over each other.
      */
+    /** Keeps one track. Fire-and-forget, because a single save cannot be lost to a race. */
     fun save(context: Context, track: YtmTrack) {
-        scope.launch {
-            val updated = _saved.value
-                .filterNot { it.videoId == track.videoId }
-                .plus(SavedTrack(
-                    videoId = track.videoId,
-                    title = track.title,
-                    artist = track.artist,
-                    album = track.album,
-                    artworkUrl = track.artworkUrl,
-                ))
+        scope.launch { saveAll(context, listOf(track)) }
+    }
 
-            savedTrackStore(context).save(updated)
-            _saved.value = updated
+    /**
+     * Keeps a batch of YouTube Music tracks, in one read-modify-write, and waits for it.
+     *
+     * Suspended rather than launched because the caller has something to say afterwards: an import
+     * that reports thirty-six tracks added while the store is still empty is a claim it has not
+     * earned, and a process death in that window leaves a playlist whose every entry resolves to
+     * nothing.
+     *
+     * Under a lock, and in one pass, because the store is a whole document: two writes overlapping
+     * both read the same list and the second discards the first. An import of thirty-six tracks
+     * saved one at a time is thirty-six chances for that, and on a phone it wins every time — the
+     * import reported thirty-six tracks added and the store held one.
+     */
+    private suspend fun saveAll(context: Context, tracks: List<YtmTrack>) {
+        if (tracks.isEmpty()) return
+
+        withContext(Dispatchers.IO) {
+            val written = savedWrites.withLock {
+                // De-duplicated by id, and later entries win, so re-saving a track that is already
+                // kept updates its metadata in place rather than adding a second row that plays the
+                // same audio over itself.
+                val merged = LinkedHashMap<String, SavedTrack>()
+                _saved.value.forEach { merged[it.videoId] = it }
+                tracks.forEach { track ->
+                    merged[track.videoId] = SavedTrack(
+                        videoId = track.videoId,
+                        title = track.title,
+                        artist = track.artist,
+                        album = track.album,
+                        artworkUrl = track.artworkUrl,
+                    )
+                }
+
+                val updated = merged.values.toList()
+                savedTrackStore(context).save(updated)
+                _saved.value = updated
+                updated.size
+            }
+            Log.d(TAG, "kept $written saved track(s)")
             refreshLibrary(context)
         }
     }
@@ -443,11 +476,13 @@ object SonoraBackend {
     fun unsave(context: Context, track: LibraryTrack) {
         val videoId = track.remote?.videoId ?: return
         scope.launch {
-            val updated = _saved.value.filterNot { it.videoId == videoId }
-            if (updated == _saved.value) return@launch
+            savedWrites.withLock {
+                val updated = _saved.value.filterNot { it.videoId == videoId }
+                if (updated == _saved.value) return@withLock
 
-            savedTrackStore(context).save(updated)
-            _saved.value = updated
+                savedTrackStore(context).save(updated)
+                _saved.value = updated
+            }
             refreshLibrary(context)
         }
     }
@@ -455,6 +490,9 @@ object SonoraBackend {
     fun refreshSaved(context: Context) {
         scope.launch { _saved.value = savedTrackStore(context).load() }
     }
+
+    /** Serialises every write to the saved-track store. See [saveAll]. */
+    private val savedWrites = Mutex()
 
     fun removeFromPlaylist(context: Context, id: String, key: String) {
         editPlaylists(context) { Playlists.removeTrack(it, id, key) }

@@ -1,6 +1,11 @@
 package dev.sonora
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import dev.sonora.backend.PlaylistStore
+import dev.sonora.backend.SavedTrackStore
+import dev.sonora.backend.SonoraBackend
+import java.io.File
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.spotify.SpotifyEmbed
 import dev.sonora.spotify.SpotifyFetch
@@ -55,5 +60,59 @@ class SpotifyImportDeviceTest {
         val track = LibraryTrack.fromRemote(first.track!!)
         assertTrue("a remote track has no file", track.file == null)
         assertTrue("key should be ytm-scoped", track.key.startsWith("ytm:"))
+    }
+}
+
+/**
+ * Writing an import out.
+ *
+ * Separate from the reading above because the two fail in completely different ways, and this one
+ * failed on a device while every offline test passed: thirty-six tracks were each saved by their own
+ * read-modify-write of a whole-document store, so the last write won and the file ended up holding
+ * one track. Nothing about the reading could have caught that.
+ */
+@RunWith(AndroidJUnit4::class)
+class SpotifyImportWriteDeviceTest {
+
+    @Test
+    fun everyImportedTrackSurvivesBeingWritten() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val collection =
+            (SpotifyEmbed.fetch(SpotifyLink.parse(LINK)!!) as SpotifyFetch.Loaded).collection
+        val matches = SpotifyImporter.match(collection.tracks)
+        val tracks = matches.mapNotNull { it.track }.map(LibraryTrack::fromRemote)
+        assertTrue("fixture matched nothing", tracks.size > 20)
+
+        // Start from a known state, so a leftover from a previous run cannot carry the test.
+        context.deleteFile("saved-tracks.json")
+        context.deleteFile("playlists.json")
+
+        val id = SonoraBackend.importSpotifyPlaylist(context, "chill", tracks)
+        assertNotNull("the import should produce a playlist", id)
+
+        // Read the file rather than the state flow: the bug was in what reached the disk, and the
+        // in-memory list was briefly correct.
+        val stored = SavedTrackStore(File(context.filesDir, "saved-tracks.json")).load()
+        val storedIds = stored.map { it.videoId }.toSet()
+        val expectedIds = tracks.mapNotNull { it.remote?.videoId }.toSet()
+
+        println("WROTE ${tracks.size} tracks; store holds ${stored.size}")
+        assertEquals(
+            "every imported track should have reached the store",
+            expectedIds,
+            storedIds,
+        )
+
+        val playlist = PlaylistStore(File(context.filesDir, "playlists.json")).load()
+            .first { it.id == id }
+        assertEquals(
+            "the playlist should hold every track it was given",
+            tracks.map { it.key }.toSet(),
+            playlist.trackKeys.toSet(),
+        )
+    }
+
+    private companion object {
+        const val LINK = "https://open.spotify.com/playlist/0rhj3YhzLUz8zqg1wQX7nf"
     }
 }
