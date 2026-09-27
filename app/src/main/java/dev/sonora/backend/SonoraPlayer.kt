@@ -479,7 +479,18 @@ object SonoraPlayer {
 
             if (byKey.isEmpty()) {
                 Log.w(TAG, "could not resolve ${playable[index].title}")
-                _state.value = PlaybackState(track = null, isResolving = false)
+                // The track stays, with a reason. Dropping it removes the player from the screen,
+                // and a listener who tapped a song and watched the player disappear has learned
+                // that the button does nothing — which is the one thing this must not do.
+                _state.value = PlaybackState(
+                    track = playable[index],
+                    isResolving = false,
+                    problem = if (playable[index].file == null) {
+                        "Couldn't play this one. YouTube would not serve it just now."
+                    } else {
+                        null
+                    },
+                )
                 return@launch
             }
 
@@ -585,6 +596,9 @@ object SonoraPlayer {
             durationMs = active.duration.takeIf { it > 0L } ?: 0L,
             isShuffled = active.shuffleModeEnabled,
             repeatMode = repeatModeOf(active.repeatMode),
+            // A track that is playing has no problem, whatever the last one had.
+            problem = null,
+            autoplay = _state.value.autoplay,
         )
 
         onTrackStarted?.invoke(track)

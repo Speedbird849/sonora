@@ -16,6 +16,9 @@ import com.metrolist.innertubex.extraction.TokenProvider
 import com.metrolist.innertubex.extraction.TokenProviderCapabilities
 import com.metrolist.innertubex.extraction.YtConfigParserImpl
 import com.metrolist.innertubex.extraction.generateClientPlaybackNonce
+import com.metrolist.innertubex.extraction.strategy.ClientFallbackStrategy
+import com.metrolist.innertubex.extraction.strategy.ClientHealthMonitor
+import com.metrolist.innertubex.models.YouTubeClient
 import com.metrolist.innertubex.models.YouTubeLocale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -106,13 +109,56 @@ object YtmStream {
         YouTubeCipherService(http, RemotePlayerConfigStore(http, repository(), logger), logger)
     }
 
+    /**
+     * The order clients are tried in, and why this one.
+     *
+     * The library's own order is a fixed preference list plus a health monitor that demotes a client
+     * for a while after it fails. Both are right in general and wrong here: the preference list is
+     * written for a network YouTube serves, and a client that has been demoted stays demoted for the
+     * rest of the session — so one bad hour leaves every later track unplayable, and the listener
+     * sees a search that works and a player that does not.
+     *
+     * So the order is stated here, and the monitor is [ClientHealthMonitor.Companion.NONE]. A
+     * client that fails is skipped for this track and the next one tries; nothing is written off
+     * for longer than the request that failed.
+     *
+     * The order itself is the one that works without an account and without a proof-of-origin
+     * token. [YouTubeClient.IOS] leads because it is the one that reliably answers a signed-out
+     * `player` request; the rest are fallbacks for the networks where it does not.
+     */
+    private val clientOrder = listOf(
+        YouTubeClient.IOS,
+        YouTubeClient.VISIONOS,
+        YouTubeClient.WEB_REMIX,
+        YouTubeClient.ANDROID_VR_1_65_10,
+        YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER,
+        YouTubeClient.WEB,
+        YouTubeClient.MWEB,
+        YouTubeClient.IOS_MUSIC,
+        YouTubeClient.ANDROID_MUSIC,
+        YouTubeClient.TVHTML5,
+    )
+
+    private val orderOnly = object : ClientFallbackStrategy {
+        override fun resolveClients(hints: ContentHints): List<YouTubeClient> {
+            // Declared in reverse and reversed here, because the strategy's contract is a
+            // preference order and a list literal read bottom-up is a preference order nobody can
+            // read.
+            return clientOrder.reversed()
+        }
+    }
+
     private val extractor by lazy {
+        // Positional, because the named form binds to the internal constructor that takes a
+        // director rather than a strategy, and that one is not ours to build.
         InnerTubeExtractor(
-            configParser = YtConfigParserImpl(http, innerTube, RemotePlayerConfigStore(http, repository(), logger), logger),
-            cipherService = cipherService,
-            innerTube = innerTube,
-            tokenProvider = noTokens,
-            logger = logger,
+            YtConfigParserImpl(http, innerTube, RemotePlayerConfigStore(http, repository(), logger), logger),
+            cipherService,
+            innerTube,
+            orderOnly,
+            noTokens,
+            ClientHealthMonitor.NONE,
+            logger,
         )
     }
 

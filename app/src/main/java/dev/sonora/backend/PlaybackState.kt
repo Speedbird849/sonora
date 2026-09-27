@@ -32,4 +32,13 @@ data class PlaybackState(
     val isResolving: Boolean = false,
     /** Whether the queue keeps itself topped up when it runs out. */
     val autoplay: Boolean = false,
+    /**
+     * Why this track is not playing, in a sentence.
+     *
+     * The track is kept rather than cleared, because a track that could not be resolved is still
+     * the track the listener asked for: clearing it takes the player off the screen and leaves a
+     * tap that did nothing at all, which is indistinguishable from a broken button. A player that
+     * is still there and is saying *this* could not be fetched is a different thing entirely.
+     */
+    val problem: String? = null,
 )

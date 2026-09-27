@@ -287,6 +287,22 @@ fun NowPlayingScreen(
             // the cover's place *and* the room below it. A pane measured against the whole column
             // pushes the transport off the bottom of the screen, which is where the thing that
             // turns the lyrics off is.
+            // A track that could not be fetched says so, in the place the picture would be, and
+            // offers the two things a listener can actually do about it. A spinner that never stops
+            // is worse than nothing: it says "working on it" for as long as it is on screen.
+            val problem = playback.problem
+            if (problem != null) {
+                UnplayableState(
+                    track = track,
+                    reason = problem,
+                    onRetry = { SonoraPlayer.play(context, track) },
+                    onSkip = { SonoraPlayer.next() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
+                )
+            }
+
             if (wordsAlpha > 0f) {
                 Box(
                     modifier = Modifier
@@ -307,7 +323,7 @@ fun NowPlayingScreen(
                     .aspectRatio(1f)
                     .graphicsLayer { translationX = artOffset.value }
                     .graphicsLayer {
-                        alpha = artAlpha
+                        alpha = if (problem != null) 0f else artAlpha
                         // The sleeve shrinks a little as the words take over, so the two are not
                         // fighting for the same square.
                         val scale = 1f - (1f - artAlpha) * 0.08f

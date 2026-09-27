@@ -27,6 +27,10 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -318,6 +322,71 @@ internal fun CapsuleSegment(
                     .height(ACTION_SIZE)
                     .background(Color.White.copy(alpha = 0.20f)),
             )
+        }
+    }
+}
+
+/**
+ * What to show instead of the sleeve when a track could not be fetched.
+ *
+ * A reason, a way to try again and a way on. All three, because the three things a listener can
+ * think are "try again", "skip it" and "why", and a screen that gives only one of them answers
+ * none of the others. Kept inside the sleeve's own square so nothing below it has to move.
+ */
+@Composable
+internal fun UnplayableState(
+    track: dev.sonora.backend.LibraryTrack,
+    reason: String,
+    onRetry: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(22.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.6f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 4,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = onSkip,
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color.White.copy(alpha = 0.8f),
+                    ),
+                ) {
+                    Text("Skip")
+                }
+                Button(
+                    onClick = onRetry,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black,
+                    ),
+                ) {
+                    Text("Try again")
+                }
+            }
         }
     }
 }
