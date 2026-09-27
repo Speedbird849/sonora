@@ -136,22 +136,17 @@ fun SonoraApp() {
         saved?.let { SonoraBackend.connect(context, it.username, it.password, remember = true) }
     }
 
-    when (val current = state) {
-        is BackendState.Connected -> MainTabs(connected = true, state = current)
-
-
-        // The Soulseek session is not the app's front door any more.
-        //
-        // YouTube Music search, streaming and the Spotify import all work without a Soulseek
-        // account — they are plain HTTPS to a public catalogue. Gating the whole app on a login to a
-        // file-sharing network would mean a listener who only wants to search and listen to
-        // YouTube could not open the app at all, and the network is where downloads come from
-        // rather than where music is found.
-        //
-        // So the tabs are always drawn, and the Connect screen becomes one of them: what the network
-        // is for, offered rather than required.
-        else -> MainTabs(connected = false, state = current)
-    }
+    // The Soulseek session is not the app's front door.
+    //
+    // YouTube Music search, streaming and the Spotify import all work without a Soulseek account —
+    // they are plain HTTPS to a public catalogue. Gating the whole app on a login to a file-sharing
+    // network would mean a listener who only wants to search and listen to YouTube could not open
+    // the app at all, and the network is where downloads come from rather than where music is found.
+    //
+    // So the tabs are drawn in every state, and connecting becomes one of them: what the network is
+    // for, offered rather than required. The session's own state still decides what the Network tab
+    // shows, so a failed or dropped connection is visible rather than swallowed.
+    MainTabs(state = state)
 }
 
 private enum class MainTab(val label: String) {
@@ -445,11 +440,11 @@ private fun ConnectScreen(state: BackendState) {
 /**
  * The app's tabs, whether or not the network is connected.
  *
- * [connected] says whether the Soulseek session is up, so the same drawing serves both cases:
- * what the network is for is one tab, not a gate in front of the app.
+ * The same drawing serves both cases: [state] says what the network session is doing, and the
+ * Network tab shows it. What the network is for is one tab, not a gate in front of the app.
  */
 @Composable
-private fun MainTabs(connected: Boolean, state: BackendState) {
+private fun MainTabs(state: BackendState) {
         // Held here rather than at the root: the tabs only need it once they are being drawn, and
         // the branch that decides whether to draw them has no Context to hand.
         val context = LocalContext.current
