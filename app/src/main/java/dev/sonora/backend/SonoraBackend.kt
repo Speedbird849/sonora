@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -373,6 +374,39 @@ object SonoraBackend {
         editPlaylists(context) { Playlists.delete(it, id) }
     }
 
+    /**
+     * Writes an imported playlist, and returns its id.
+     *
+     * The tracks are *kept* rather than downloaded: an import is a list of names matched to a
+     * catalogue, and each row can then be played as a stream or fetched as a lossless file from
+     * the network, which are two different decisions and neither of them is implied by importing.
+     *
+     * Batching is kept inside [Innertube.addToPlaylist] rather than here; this only decides that a
+     * failure part-way leaves the tracks that did land rather than nothing.
+     */
+    suspend fun importSpotifyPlaylist(
+        context: Context,
+        title: String,
+        tracks: List<LibraryTrack>,
+    ): String? {
+        val id = UUID.randomUUID().toString()
+        val name = title.trim().ifBlank { "Imported from Spotify" }
+
+        writePlaylists(context) { current ->
+            val created = Playlists.create(current, name, id)
+            tracks.fold(created) { list, track ->
+                Playlists.addTrack(list, id, track.key)
+            }
+        }
+
+        // Kept outside the edit above, which is one atomic write: a save that failed would otherwise
+        // leave a playlist whose entries all point at nothing.
+        tracks.forEach { track -> track.remote?.let { save(context, it) } }
+
+        Log.d(TAG, "imported '${name}': ${tracks.size} track(s) as $id")
+        return id
+    }
+
     fun addToPlaylist(context: Context, id: String, track: LibraryTrack) {
         // A streaming track is also kept: a playlist entry for something the library has never heard
         // of would resolve to nothing on the next launch, because there is no file behind it.
@@ -497,6 +531,23 @@ object SonoraBackend {
             store(context).save(updated)
             _playlists.value = updated
         }
+    }
+
+    /**
+     * The same edit as [editPlaylists], but waited on.
+     *
+     * An import reports the playlist it made, so the write has to have happened before the id is
+     * returned — otherwise the caller navigates to a playlist that is not there yet, or never arrives.
+     */
+    private suspend fun writePlaylists(
+        context: Context,
+        edit: (List<Playlist>) -> List<Playlist>,
+    ) = withContext(Dispatchers.IO) {
+        val updated = edit(_playlists.value)
+        if (updated == _playlists.value) return@withContext
+
+        store(context).save(updated)
+        _playlists.value = updated
     }
 
     private fun store(context: Context) = PlaylistStore(File(context.filesDir, PLAYLISTS_FILE))

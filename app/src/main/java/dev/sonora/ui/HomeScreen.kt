@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
@@ -61,7 +62,11 @@ import java.io.File
  * exists, but nothing yet says what is worth hearing — so these are things the user did.
  */
 @Composable
-fun HomeScreen(onRunSearch: (String) -> Unit, onOpenPlaylist: (String) -> Unit) {
+fun HomeScreen(
+    onRunSearch: (String) -> Unit,
+    onOpenPlaylist: (String) -> Unit,
+    onImportSpotify: () -> Unit = {},
+) {
     val context = LocalContext.current
     val tracks by SonoraBackend.library.collectAsState()
     val playlists by SonoraBackend.playlists.collectAsState()
@@ -139,6 +144,7 @@ fun HomeScreen(onRunSearch: (String) -> Unit, onOpenPlaylist: (String) -> Unit) 
         if (orderedPlaylists.isNotEmpty()) {
             item {
                 PlaylistsRow(
+                    onImportSpotify = onImportSpotify,
                     playlists = orderedPlaylists,
                     byKey = tracks,
                     onOpen = onOpenPlaylist,
@@ -213,6 +219,7 @@ private fun PlaylistsRow(
     playlists: List<Playlist>,
     byKey: List<LibraryTrack>,
     onOpen: (String) -> Unit,
+    onImportSpotify: () -> Unit,
 ) {
     val keys = remember(byKey) { byKey.mapTo(HashSet()) { it.key } }
 
@@ -223,6 +230,20 @@ private fun PlaylistsRow(
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // The import tile leads, because for anyone arriving from Spotify with a link already
+            // copied it is the thing they came to do — and it is the only way a playlist gets made
+            // here from somewhere else.
+            item(key = "import") {
+                MediaCard(
+                    artwork = null,
+                    icon = Icons.Filled.Download,
+                    title = "Import from Spotify",
+                    subtitle = "Paste a playlist link",
+                    shape = RoundedCornerShape(8.dp),
+                    onClick = onImportSpotify,
+                )
+            }
+
             items(playlists, key = { it.id }) { playlist ->
                 val liked = playlist.id == Playlists.LIKED_ID
 

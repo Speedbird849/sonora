@@ -84,6 +84,7 @@ import dev.sonora.backend.BackendState
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
+import dev.sonora.spotify.SpotifyImportRunner
 import dev.sonora.backend.SonoraPlayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -97,6 +98,17 @@ import kotlinx.coroutines.withContext
 fun SonoraApp() {
     val context = LocalContext.current
     val state by SonoraBackend.state.collectAsState()
+
+    // The import's own state, hoisted above the connected/unconnected branch so a run is not
+    // cancelled by a reconnect. The write half is handed in rather than reached for, because
+    // creating a playlist needs a Context this object does not hold.
+    val scope = rememberCoroutineScope()
+    val importRunner = remember {
+        SpotifyImportRunner { draft ->
+            SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
+                ?: error("the import produced no playlist")
+        }
+    }
 
     // One launcher for all of them: Android shows these one dialog at a time, so firing separate
     // requests in the same frame would silently drop all but the first.
@@ -138,6 +150,9 @@ fun SonoraApp() {
             var tab by remember { mutableStateOf(MainTab.Home) }
             var playerOpen by remember { mutableStateOf(false) }
             var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
+            // The Spotify import is a sequence with its own state, so it outlives the screen that
+            // opened it — a listener who switches tabs mid-import should not lose their progress.
+            var spotifyImport by remember { mutableStateOf(false) }
 
             // Held here rather than inside the Library so a playlist card on Home can open it.
             var openPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -177,6 +192,7 @@ fun SonoraApp() {
                     Box(modifier = Modifier.weight(1f)) {
                         when (tab) {
                             MainTab.Home -> HomeScreen(
+                                onImportSpotify = { spotifyImport = true },
                                 onRunSearch = { term ->
                                     // A suggestion on Home is really a pre-filled search, so this is
                                     // the whole action: go to Search and run it.
@@ -300,6 +316,20 @@ fun SonoraApp() {
                         },
                     )
                 }
+            }
+
+            if (spotifyImport) {
+                SpotifyImportDialog(
+                    state = importRunner.state.collectAsState().value,
+                    onStart = { link -> importRunner.start(scope, link) },
+                    onConfirm = { draft ->
+                        scope.launch { importRunner.confirm(draft) }
+                    },
+                    onDismiss = {
+                        spotifyImport = false
+                        importRunner.dismiss()
+                    },
+                )
             }
 
             AddToPlaylistFlow(
