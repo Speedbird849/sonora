@@ -122,6 +122,14 @@ dependencies {
     // connections are pooled in one place rather than per call site.
     implementation(libs.okhttp)
 
+    // Frosted bars: the tab bar and mini player blur what scrolls under them.
+    // Real image loading for cover art, which is fetched from three different
+    // services at three different sizes.
+    implementation(libs.haze)
+    implementation(libs.haze.materials)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
