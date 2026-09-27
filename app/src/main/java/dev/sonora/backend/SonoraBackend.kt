@@ -137,6 +137,9 @@ object SonoraBackend {
      */
     private val _scanning = MutableStateFlow(false)
 
+    /** Whether a scan is under way, so a second request for the same answer can drop out. */
+    private val scanInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
 
     /**
@@ -244,14 +247,44 @@ object SonoraBackend {
     private var coverArt: CoverArtCache? = null
 
     /**
+     * The tracks the last scan found on the device, without the kept streams folded in.
+     *
+     * Kept apart from [_library] because the two halves of the library cost wildly different
+     * amounts to produce. Reading a scan means walking the download folder, reading the tags off
+     * every file in it and asking the media provider about the rest of the device — seconds, on a
+     * library of any size. Folding in the kept streams is a list operation over something already
+     * in memory.
+     *
+     * So this holds the expensive answer and [_publishLibrary] builds the cheap one from it, and
+     * anything that only changes what has been *kept* re-publishes without asking the disk anything.
+     * That is the difference between a tap on a track taking a moment and taking long enough to
+     * look like the app has hung.
+     */
+    private var scanned: List<LibraryTrack> = emptyList()
+
+    /**
+     * Puts the kept streams back on top of the last scan and publishes the library.
+     *
+     * Synchronous and cheap enough to call from a write: no filesystem, no provider, no tags.
+     */
+    private fun publishLibrary() {
+        _library.value = scanned.withSaved(_saved.value).sortedBy { it.title.lowercase() }
+    }
+
+    /**
      * Rescans the download directory.
      *
      * The filesystem is the source of truth for what has been downloaded, so this is a scan
      * rather than a stored index — nothing to keep in sync, nothing to go stale. That holds until
      * a track is deleted outside the app; see PRD D5.
+     *
+     * Coalesced while one is under way, because a play, a like and a playlist addition all end here
+     * and none of them changes what is on the disk: three walks of every file's tags to answer the
+     * same question three times is not a rescan, it is a stall.
      */
     fun refreshLibrary(context: Context) {
         scope.launch {
+            if (scanInFlight.getAndSet(true)) return@launch
             _scanning.value = true
             val location = MusicDirectory.resolve(context, _settings.value.downloadTreeUri)
             val directory = location.directory
@@ -284,15 +317,14 @@ object SonoraBackend {
                     (_settings.value.includeDeviceMusic || track.key.startsWith(root))
             }
 
-            val library = (downloaded + fromProvider)
-                .withSaved(_saved.value)
-                .sortedBy { it.title.lowercase() }
-            _library.value = library
+            scanned = downloaded + fromProvider
             _scanning.value = false
+            scanInFlight.set(false)
+            publishLibrary()
 
             Log.d(
                 TAG,
-                "library: ${library.size} track(s), ${downloaded.size} from " +
+                "library: ${_library.value.size} track(s), ${downloaded.size} from " +
                     "${directory.absolutePath} (shared=${location.shared})",
             )
         }
@@ -537,7 +569,9 @@ object SonoraBackend {
                 updated.size
             }
             Log.d(TAG, "kept $written saved track(s)")
-            refreshLibrary(context)
+            // Re-published, not re-scanned: a kept track has no file, so the scan's answer is still
+            // correct and re-reading every file's tags to add one row is the whole cost of the tap.
+            publishLibrary()
         }
     }
 
@@ -565,7 +599,7 @@ object SonoraBackend {
                 savedTrackStore(context).save(updated)
                 _saved.value = updated
             }
-            refreshLibrary(context)
+            publishLibrary()
         }
     }
 

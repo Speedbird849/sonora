@@ -121,13 +121,35 @@ internal object RemoteArtworkCache {
     }
 
     /**
+     * A file holding the picture already extracted from [audio], or null when nothing has.
+     *
+     * Never extracts, and never fetches: this is the reader that stands between a slow picture and
+     * the play path, and a question that costs a read of a whole lossless file cannot be asked on
+     * the way to playing something. [embedded] is the one that does the work; the player screen is
+     * what calls it, because a cover is wanted once the song is playing.
+     */
+    fun cachedArtwork(audio: File): File? = fileFor("embedded|${audio.absolutePath}|${audio.length()}")
+
+    /**
+     * Remembers the picture that came out of [audio], so [cachedArtwork] can name it afterwards.
+     *
+     * The write and not the extraction, deliberately: the caller already has the bytes because it
+     * was drawing them, and asking it to hand them over is free where asking it to go and find them
+     * again is not.
+     */
+    fun rememberEmbedded(audio: File, bytes: ByteArray) {
+        put("embedded|${audio.absolutePath}|${audio.length()}", bytes)
+    }
+
+    /**
      * A file holding the picture embedded in [audio], written out once.
      *
      * A downloaded track keeps its cover inside the file, and the notification is handed a URI and
      * asked to load it rather than handed the file itself. Cached by path and size, so it costs one
-     * extraction per track rather than one per track change.
+     * extraction per track rather than one per track change. Blocking: reading it means reading the
+     * file, so the caller has to be off the main thread and off the play path.
      */
-    fun embeddedFile(audio: File, px: Int): File? {
+    fun embedded(audio: File): File? {
         val key = "embedded|${audio.absolutePath}|${audio.length()}"
         fileFor(key)?.let { return it }
 

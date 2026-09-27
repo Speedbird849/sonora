@@ -28,8 +28,8 @@ android {
         // Provisional. See docs/toolchain.md - this value drives the Android 15
         // foreground-service time cap described in the PRD (D3).
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "1.0.0"
 
         // Needed by the device tests that check YouTube will actually serve audio,
         // which cannot be answered from a JVM fixture.

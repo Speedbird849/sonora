@@ -20,6 +20,8 @@ import dev.sonora.ytm.YtmAudio
 import dev.sonora.ytm.YtmSearch
 import dev.sonora.ytm.YtmStream
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
@@ -504,9 +506,21 @@ object SonoraPlayer {
                 return@launch
             }
 
-            playable.forEachIndexed { position, track ->
-                if (position != index && track.key !in byKey) {
-                    itemFor(track)?.let { byKey[track.key] = it }
+            // The rest of the queue, asked for together rather than one after another.
+            //
+            // Every one of these is a round trip to a service that decides whether to serve the
+            // track at all, and they do not depend on each other — so asking for them in a row made
+            // the time to the first note of the tapped track proportional to the size of the queue.
+            // Playing one track out of a library of thirty-six took twenty seconds, all of it spent
+            // resolving the thirty-five nobody was waiting for; the track after that was instant,
+            // because by then they had all been done. Bounded so a library of a few thousand tracks
+            // does not open a few thousand sockets, and so the tapped track is never competing with
+            // the rest of a queue it is holding up.
+            val rest = playable.filterIndexed { position, _ -> position != index }
+            for (batch in rest.chunked(RESOLVE_BATCH)) {
+                val items = batch.map { track -> async { itemFor(track) } }.awaitAll()
+                batch.forEachIndexed { at, track ->
+                    items[at]?.let { byKey[track.key] = it }
                 }
             }
 
@@ -563,12 +577,18 @@ object SonoraPlayer {
      * notification is drawn by the system from this and from nothing else: an item with a title and
      * no artwork is a notification with a blank square in it, on the lock screen and in the shade.
      *
-     * Fetched here, on the way past, because the alternative is a second request at the moment the
-     * track changes — which is the moment the shade is already open and the blank is most visible.
-     * The bytes go through the same on-disk cache the rows read, so it is one request per cover for
-     * the life of the app and none at all for a cover already on the device.
+     * **Named, not fetched.** This runs once per item, for every item in the queue, before the queue
+     * is handed to the player at all — so anything done here is done before the first note of the
+     * first track. Pulling a cover here meant a request per queued track for a streamed one, and
+     * `MediaMetadataRetriever` over the whole of a 27 MB FLAC for a downloaded one, which is a long
+     * wait for a picture that is not what anyone tapped for.
+     *
+     * So the metadata says where the picture *is* and the library fetches it, off the play path, at
+     * its own pace. A cover already extracted is named from the cache; one that is not is left to be
+     * found, and the notification fills in when it arrives rather than holding the song up until it
+     * does.
      */
-    private suspend fun metadata(track: LibraryTrack): MediaMetadata {
+    private fun metadata(track: LibraryTrack): MediaMetadata {
         val builder = MediaMetadata.Builder()
             .setTitle(track.title)
             .setArtist(track.artist)
@@ -577,14 +597,17 @@ object SonoraPlayer {
         return builder.build()
     }
 
-    private suspend fun artworkFor(track: LibraryTrack): Uri? = withContext(Dispatchers.IO) {
+    /** Where this track's cover already is, or null when nothing has looked for it yet. */
+    private fun artworkFor(track: LibraryTrack): Uri? {
         val remote = track.remote
-        val file = when {
-            remote != null -> remote.artworkUrl?.let { RemoteArtworkCache.fetchedFile(it, NOTIFICATION_ART_PX) }
-            // A downloaded track keeps its cover inside the file, where nothing else can see it.
-            else -> track.file?.let { RemoteArtworkCache.embeddedFile(it, NOTIFICATION_ART_PX) }
-        } ?: return@withContext null
-        Uri.fromFile(file)
+        if (remote != null) {
+            // The catalogue's own address for the picture. The library downloads it when it wants it,
+            // which for a notification is immediately and off this path.
+            return remote.artworkUrl
+                ?.let { RemoteArtworkCache.keyFor(it, NOTIFICATION_ART_PX) }
+                ?.let(Uri::parse)
+        }
+        return track.file?.let { RemoteArtworkCache.cachedArtwork(it) }?.let(Uri::fromFile)
     }
 
     /**
@@ -677,6 +700,16 @@ object SonoraPlayer {
 
     private const val MAX_RESOLVED = 32
 
+
+    /**
+     * How many of the rest of a queue are resolved at once.
+     *
+     * Enough that the time to the tapped track does not grow with the size of the library, small
+     * enough that a library of a few thousand tracks does not open a few thousand sockets at it, and
+     * small enough that the track being waited on is never one of many competing for the same
+     * connection. Six is the point where this machine's own numbers stop improving.
+     */
+    private const val RESOLVE_BATCH = 6
 
     /** Big enough for the notification's own copy of a cover, which it scales down itself. */
 

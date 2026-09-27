@@ -175,15 +175,26 @@ private fun sampleFor(sourceWidth: Int, px: Int): Int {
 }
 
 
-private fun decodeArtwork(file: File): ImageBitmap? = runCatching {
+private fun decodeArtwork(file: File): ImageBitmap? {
+    val bytes = embeddedPicture(file) ?: return null
+    // And kept, because the one reader that cannot have a bitmap — the notification, which is handed
+    // a URI by a library that has long since stopped running — is told where the picture is rather
+    // than being given it. Written here, where a cover is being looked for anyway, so the extraction
+    // is paid for once and never on the way to playing something.
+    RemoteArtworkCache.rememberEmbedded(file, bytes)
+
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = max(1, max(bytes.size / (256 * 256 * 4), 1))
+    }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+}
+
+/** The bytes of the picture inside [file], or null when it has none or cannot be read. */
+private fun embeddedPicture(file: File): ByteArray? = runCatching {
     val retriever = MediaMetadataRetriever()
     try {
         retriever.setDataSource(file.absolutePath)
-        val bytes = retriever.embeddedPicture ?: return null
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = max(1, max(bytes.size / (256 * 256 * 4), 1))
-        }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+        retriever.embeddedPicture
     } finally {
         retriever.release()
     }
