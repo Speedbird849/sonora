@@ -90,10 +90,12 @@ internal fun SpotifyImportDialog(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        text = if (state.added == state.requested) {
-                            "Added ${state.added} tracks."
-                        } else {
-                            "Added ${state.added} of ${state.requested}."
+                        // A single-track playlist is a real thing to import, and "Added 1 tracks"
+                        // is the kind of thing a listener reads as a bug in the count.
+                        text = when {
+                            state.added == state.requested && state.added == 1 -> "Added 1 track."
+                            state.added == state.requested -> "Added ${state.added} tracks."
+                            else -> "Added ${state.added} of ${state.requested}."
                         },
                         style = MaterialTheme.typography.bodyLarge,
                     )
