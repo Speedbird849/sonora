@@ -373,36 +373,6 @@ fun SearchScreen(
                 // Registered even while empty. A row added to the top of a list that has already
                 // been laid out makes the list keep what was on top in place, which pushes the new
                 // row above the viewport — and this row always arrives after the search has begun.
-                // Albums and artists, in shelves of their own rather than one shelf of both.
-                //
-                // Two reasons, and the second is the one that bites. They answer separately and
-                // arrive separately, and a row that is half one half the other is *inserted* in the
-                // middle when the second half lands — a lazy list keeps what it was showing in
-                // place, so the shelf quietly scrolls past its own contents and the first thing
-                // the listener sees is whatever arrived second. Two shelves cannot shift each
-                // other. And a heading over each is honest about what arrived.
-                if (showYoutube && entities.albums.isNotEmpty()) {
-                    item(key = "albums") {
-                        EntityShelf(
-                            title = "Albums",
-                            subtitle = "From YouTube Music; tap to open",
-                            entities = entities.albums,
-                            onOpen = onOpenAlbum,
-                        )
-                    }
-                }
-
-                if (showYoutube && entities.artists.isNotEmpty()) {
-                    item(key = "artists") {
-                        EntityShelf(
-                            title = "Artists",
-                            subtitle = "From YouTube Music; tap to open",
-                            entities = entities.artists,
-                            onOpen = onOpenArtist,
-                        )
-                    }
-                }
-
                 // YouTube Music first, because it is the one source that can be heard the moment it
                 // is tapped: a stream resolves and plays, where a peer result is a file that has to
                 // finish downloading before anything comes out of it.
@@ -429,7 +399,37 @@ fun SearchScreen(
                         }
                     }
 
-                    item(key = "youtube") {
+                // Albums and artists, in shelves of their own rather than one shelf of both.
+                //
+                // Two reasons, and the second is the one that bites. They answer separately and
+                // arrive separately, and a row that is half one half the other is *inserted* in the
+                // middle when the second half lands — a lazy list keeps what it was showing in
+                // place, so the shelf quietly scrolls past its own contents and the first thing
+                // the listener sees is whatever arrived second. Two shelves cannot shift each
+                // other. And a heading over each is honest about what arrived.
+                if (showYoutube && entities.artists.isNotEmpty()) {
+                    item(key = "artists") {
+                        EntityShelf(
+                            title = "Artists",
+                            subtitle = "From YouTube Music; tap to open",
+                            entities = entities.artists,
+                            onOpen = onOpenArtist,
+                        )
+                    }
+                }
+
+                    if (showYoutube && entities.albums.isNotEmpty()) {
+                    item(key = "albums") {
+                        EntityShelf(
+                            title = "Albums",
+                            subtitle = "From YouTube Music; tap to open",
+                            entities = entities.albums,
+                            onOpen = onOpenAlbum,
+                        )
+                    }
+                }
+
+                item(key = "youtube") {
                         ResultSectionHeader("Songs")
                     }
 
