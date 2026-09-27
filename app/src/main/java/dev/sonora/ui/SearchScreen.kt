@@ -59,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import dev.sonora.backend.DownloadState
 import dev.sonora.backend.SearchHit
 import dev.sonora.backend.SearchFolders
@@ -68,6 +70,7 @@ import dev.sonora.ytm.YtmTrack
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.SearchSource
 import dev.sonora.backend.SearchState
+import dev.sonora.backend.toYtm
 import dev.sonora.backend.SonoraBackend
 import dev.sonora.backend.SortMode
 import dev.sonora.ui.theme.accentText
@@ -100,6 +103,10 @@ fun SearchScreen() {
     // Nothing searched yet: the recent queries are the useful thing to show, rather than an
     // instruction to go and do something.
     val showingHistory = searchState.query.isBlank() && !searchState.searching
+
+    // What has been played out of a search, so the page can offer the answer rather than the
+    // question. Read here rather than remembered so it survives leaving the tab.
+    val recentTracks by SonoraBackend.recentTracks.collectAsState()
 
     // Either source can be turned off. The search itself still asks both: the catalogue answer is
     // cached, and switching back should not mean waiting for it again.
@@ -203,9 +210,44 @@ fun SearchScreen() {
             modifier = Modifier.fillMaxSize(),
             contentPadding = listContentPadding(withMiniPlayer = playing),
         ) {
+            // The tracks played out of a search come first, because they are what a listener
+            // coming back to this page is most likely to want: the thing they already found, with
+            // its own cover, one tap from playing again. The queries they typed are the fallback
+            // for when there is nothing yet.
+            if (showingHistory && recentTracks.isNotEmpty()) {
+                item(key = "recent-tracks") {
+                    ShelfHeader(
+                        title = "Recently played",
+                        subtitle = "Found here, and still one tap away",
+                    )
+                }
+
+                items(recentTracks, key = { it.key }) { recent ->
+                    val track = LibraryTrack(
+                        file = null,
+                        title = recent.title,
+                        artist = recent.artist,
+                        album = recent.album,
+                        size = 0,
+                        remote = recent.toYtm(),
+                        artworkUrl = recent.artworkUrl,
+                    )
+
+                    SongRow(
+                        track = track,
+                        onClick = { SonoraPlayer.play(context, track) },
+                        meta = listOfNotNull(recent.artist).joinToString("  ·  "),
+                    )
+                }
+
+                item(key = "recent-tracks-gap") { Spacer(Modifier.height(24.dp)) }
+            }
+
             if (showingHistory) {
                 if (history.isEmpty()) {
-                    item { Note("Search the Soulseek network to find music.") }
+                    if (recentTracks.isEmpty()) {
+                        item { Note("Search to find music, on YouTube Music or the peer network.") }
+                    }
                 } else {
                     item {
                         Row(
@@ -306,7 +348,14 @@ fun SearchScreen() {
                     ) { track ->
                         SongRow(
                             track = LibraryTrack.fromRemote(track),
-                            onClick = { SonoraPlayer.play(context, LibraryTrack.fromRemote(track)) },
+                            onClick = {
+                                // Remembered because the listener chose it, not because they typed
+                                // it. The query is already in the history; what is missing from
+                                // the history is the answer they picked.
+                                val picked = LibraryTrack.fromRemote(track)
+                                SonoraPlayer.play(context, picked)
+                                SonoraBackend.recordRecentTrack(context, picked)
+                            },
                             onMore = { peerSearch(track) },
                             meta = listOfNotNull(track.artist, track.album).joinToString("  ·  "),
                         )

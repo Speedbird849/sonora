@@ -67,7 +67,8 @@ data class LibraryTrack(
         }
 
     companion object {
-        private const val REMOTE_PREFIX = "ytm:"
+        /** What a remote track's [key] starts with. Also used to read one back. */
+        const val REMOTE_PREFIX = "ytm:"
 
         /** Leading track numbers: `07. `, `07 - `, `07_`, `1-04 `. */
         private val LEADING_TRACK_NUMBER = Regex("^\\d{1,3}\\s*[-._)]\\s*")

@@ -1,6 +1,7 @@
 package dev.sonora.backend
 
 import android.content.Context
+import dev.sonora.ytm.YtmTrack
 import kotlinx.serialization.Serializable
 import java.io.File
 
@@ -57,3 +58,18 @@ class RecentTrackStore(private val file: File) {
         const val MAX = 40
     }
 }
+
+/**
+ * The catalogue shape this row was found as, so it can be played again.
+ *
+ * The video id is all that is really needed; the rest is filled in from the row so a remembered
+ * track still shows a title before its own metadata is fetched.
+ */
+fun RecentTrack.toYtm(): YtmTrack = YtmTrack(
+    videoId = key.removePrefix(LibraryTrack.REMOTE_PREFIX),
+    title = title,
+    artist = artist.orEmpty(),
+    album = album,
+    artworkUrl = artworkUrl,
+)
+
