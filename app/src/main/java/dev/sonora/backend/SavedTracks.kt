@@ -69,7 +69,7 @@ private fun SavedTrack.toTrack() = YtmTrack(
  * stops a downloaded track appearing twice. Everything else is added as a streaming entry, so the
  * library is one list of tracks rather than two lists a caller has to merge.
  */
-internal fun List<LibraryTrack>.withSaved(saved: List<SavedTrack>): List<LibraryTrack> {
+fun List<LibraryTrack>.withSaved(saved: List<SavedTrack>): List<LibraryTrack> {
     if (saved.isEmpty()) return this
     val present = mapTo(HashSet()) { it.key }
     return this + saved
