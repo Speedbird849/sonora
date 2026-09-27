@@ -4,6 +4,7 @@ import android.util.Log
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
@@ -84,15 +85,18 @@ internal class StreamDataSource(
         if (!opened.isSuccessful) {
             val code = opened.code
             opened.close()
-            // 403 from googlevideo is YouTube refusing the *bytes* for an address, not a problem
-            // with the URL or the headers: the same URL, with the same client identity, works from
-            // a different network. Said in the message because a bare "Response code: 403" twenty
-            // frames into playback is not something anybody can act on.
+            // Said because a bare "Response code: 403" twenty frames into playback is not something
+            // anybody can act on. The two usual causes, in the order they are worth checking: the
+            // request went out un-ranged, which this source used to do and which these URLs refuse
+            // outright, and the URL has aged out — googlevideo mints them with a `expire` a few hours
+            // out, and past it the same request is refused too.
             if (code == 403) {
                 Log.w(
                     TAG,
-                    "googlevideo refused the stream for $code. The URL was minted and is not " +
-                        "stale; the address asking for the bytes was refused.",
+                    "googlevideo refused the bytes for $code. The request was ranged at " +
+                        "${dataSpec.position}+${dataSpec.length}; if that was a whole-file read the " +
+                        "URL was minted for a profile that will not serve one, and if it was not, " +
+                        "the URL has aged out and the track has to be resolved again.",
                 )
             }
             throw HttpDataSource.InvalidResponseCodeException(
@@ -147,6 +151,7 @@ internal class StreamDataSource(
     private fun request(dataSpec: DataSpec) = okhttp3.Request.Builder()
         .url(dataSpec.uri.toString())
         .apply { headersFor(dataSpec.uri.toString()).forEach { (name, value) -> header(name, value) } }
+        .apply { rangeHeader(dataSpec.position, dataSpec.length)?.let { header("Range", it) } }
         .build()
 
     companion object {
@@ -172,5 +177,27 @@ internal class StreamDataSource(
      */
     fun isStream(uri: Uri): Boolean = uri.scheme == "http" || uri.scheme == "https"
     }
+}
+
+/**
+ * The `Range` header for a read of [length] bytes at [position], or null when the whole body is
+ * wanted.
+ *
+ * Without this the player asks for a stream the way a browser would — the entire file, in one
+ * response — and googlevideo answers `403`. Not a throttle, not a stale URL, and not the client
+ * identity: the URLs YouTube mints for its streaming profiles are served in ranges, and a request for
+ * the whole thing is refused. The same URL asked for `bytes=0-98303` returns 206 and 98,304 bytes of
+ * audio, twenty seconds after a 403 for the un-ranged request.
+ *
+ * So every read the player makes is ranged, and the length is restated the way `DataSpec` counts it:
+ * a position and a length, where [C.LENGTH_UNSET] is to the end of the stream. The end is inclusive,
+ * so a length of one byte at position zero is `bytes=0-0` and not `bytes=0-1`.
+ */
+@UnstableApi
+internal fun rangeHeader(position: Long, length: Long): String? {
+    val toEnd = length == C.LENGTH_UNSET.toLong()
+    if (position == 0L && toEnd) return null
+    val end = if (toEnd) "" else (position + length - 1).toString()
+    return "bytes=$position-$end"
 }
 

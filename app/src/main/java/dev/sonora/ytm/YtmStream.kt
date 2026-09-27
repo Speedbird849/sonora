@@ -79,9 +79,25 @@ object YtmStream {
         "YtmStream.init(context) has not been called"
     }
 
+    /**
+     * The library's own words, at its own levels, with the detail maps it attaches.
+     *
+     * The detail is the whole diagnosis: a line reading "client response unavailable" says nothing,
+     * and the same line with `tokenUnavailable=true` and `client=ANDROID_VR` says the request was
+     * never made because no token could be minted for it. Anything that decides which identity a
+     * track is served by is inside this library, so the reasons it gives are the only place the
+     * choice is legible from outside.
+     */
     private val logger = InnerTubeLogger { event ->
         if (event.level == InnerTubeLogLevel.DEBUG) return@InnerTubeLogger
-        val line = "ITX ${event.tag}: ${event.message}"
+        val detail = event.details.entries
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ") { (key, value) -> "$key=$value" }
+            .orEmpty()
+        val line = buildString {
+            append("ITX ").append(event.tag).append(": ").append(event.message)
+            if (detail.isNotEmpty()) append(" [").append(detail).append(']')
+        }
         if (event.level == InnerTubeLogLevel.INFO) Log.d(TAG, line) else Log.w(TAG, line)
     }
 
