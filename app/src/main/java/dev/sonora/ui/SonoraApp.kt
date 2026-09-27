@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -99,16 +101,6 @@ fun SonoraApp() {
     val context = LocalContext.current
     val state by SonoraBackend.state.collectAsState()
 
-    // The import's own state, hoisted above the connected/unconnected branch so a run is not
-    // cancelled by a reconnect. The write half is handed in rather than reached for, because
-    // creating a playlist needs a Context this object does not hold.
-    val scope = rememberCoroutineScope()
-    val importRunner = remember {
-        SpotifyImportRunner { draft ->
-            SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
-                ?: error("the import produced no playlist")
-        }
-    }
 
     // One launcher for all of them: Android shows these one dialog at a time, so firing separate
     // requests in the same frame would silently drop all but the first.
@@ -145,209 +137,20 @@ fun SonoraApp() {
     }
 
     when (val current = state) {
-        is BackendState.Connected -> {
-            // Home first: it is where resuming and finding new music both start.
-            var tab by remember { mutableStateOf(MainTab.Home) }
-            var playerOpen by remember { mutableStateOf(false) }
-            var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
-            // The Spotify import is a sequence with its own state, so it outlives the screen that
-            // opened it — a listener who switches tabs mid-import should not lose their progress.
-            var spotifyImport by remember { mutableStateOf(false) }
+        is BackendState.Connected -> MainTabs(connected = true, state = current)
 
-            // Held here rather than inside the Library so a playlist card on Home can open it.
-            var openPlaylistId by remember { mutableStateOf<String?>(null) }
-            var openArtistName by remember { mutableStateOf<String?>(null) }
-            var openAlbumName by remember { mutableStateOf<String?>(null) }
-            val playback by SonoraPlayer.state.collectAsState()
-            val playlists by SonoraBackend.playlists.collectAsState()
-            val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
 
-            // Binds to the playback service once the app is in use, so the first tap on a track
-            // is not waiting on a connection.
-            LaunchedEffect(Unit) { SonoraPlayer.connect(context) }
-
-            // Playlists outlive the session, so they are read once when the app is usable rather
-            // than on every visit to the Library.
-            LaunchedEffect(Unit) { SonoraBackend.refreshPlaylists(context) }
-            LaunchedEffect(Unit) { SonoraBackend.refreshSettings(context) }
-            LaunchedEffect(Unit) { SonoraBackend.refreshSearchHistory(context) }
-            LaunchedEffect(Unit) { SonoraBackend.refreshPlayHistory(context) }
-            LaunchedEffect(Unit) { SonoraBackend.refreshSaved(context) }
-
-            LaunchedEffect(playback.track, playback.isPlaying) {
-                while (playback.track != null) {
-                    SonoraPlayer.syncPosition()
-                    delay(500)
-                }
-            }
-
-            Box(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // The screen headers are the top of the UI now that the app title bar is
-                        // gone, so the status bar has to be inset here instead.
-                        .statusBarsPadding(),
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        when (tab) {
-                            MainTab.Home -> HomeScreen(
-                                onImportSpotify = { spotifyImport = true },
-                                onRunSearch = { term ->
-                                    // A suggestion on Home is really a pre-filled search, so this is
-                                    // the whole action: go to Search and run it.
-                                    tab = MainTab.Search
-                                    SonoraBackend.search(context, term)
-                                },
-                                onOpenPlaylist = { id ->
-                                    // The same handoff in the other direction: the playlist is shown by
-                                    // the Library, so go there and ask it for that one.
-                                    openPlaylistId = id
-                                    tab = MainTab.Library
-                                },
-                            )
-                            MainTab.Search -> SearchScreen()
-                            MainTab.Library -> LibraryScreen(
-                                onRunSearch = { term ->
-                                    tab = MainTab.Search
-                                    SonoraBackend.search(context, term)
-                                },
-                                openPlaylistId = openPlaylistId,
-                                onOpenPlaylist = { openPlaylistId = it },
-                                onClosePlaylist = { openPlaylistId = null },
-                                openArtistName = openArtistName,
-                                onCloseArtist = { openArtistName = null },
-                                openAlbumName = openAlbumName,
-                                onCloseAlbum = { openAlbumName = null },
-                            )
-                            MainTab.Settings -> SettingsScreen()
-                        }
-                    }
-
-                    NowPlayingBar(onOpen = { playerOpen = true })
-
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        MainTab.entries.forEach { entry ->
-                            NavigationBarItem(
-                                selected = tab == entry,
-                                onClick = {
-                                    // Tapping Search while already on it clears the search, which is
-                                    // also what brings the recent queries back into view.
-                                    if (tab == entry && entry == MainTab.Search) {
-                                        SonoraBackend.clearSearch()
-                                    } else {
-                                        // Leaving the Library closes whatever it had open. That state
-                                        // used to live inside it and reset this way, and holding it up
-                                        // here should not change what the user sees.
-                                        if (entry != MainTab.Library) {
-                                            openPlaylistId = null
-                                            openArtistName = null
-                                            openAlbumName = null
-                                        }
-                                        tab = entry
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = entry.icon(),
-                                        contentDescription = null,
-                                    )
-                                },
-                                label = { Text(entry.label) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.accentText,
-                                    selectedTextColor = MaterialTheme.colorScheme.accentText,
-                                    indicatorColor = MaterialTheme.colorScheme.background,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                ),
-                            )
-                        }
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = playerOpen,
-                    enter = slideInVertically(
-                        initialOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(
-                            durationMillis = 240,
-                            easing = CubicBezierEasing(0.1f, 1f, 0.1f, 1f),
-                        ),
-                    ) + fadeIn(
-                        animationSpec = tween(durationMillis = 180),
-                    ),
-                    exit = slideOutVertically(
-                        targetOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(
-                            durationMillis = 200,
-                            easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f),
-                        ),
-                    ) + fadeOut(
-                        animationSpec = tween(durationMillis = 160),
-                    ),
-                ) {
-                    BackHandler { playerOpen = false }
-                    NowPlayingScreen(
-                        onClose = { playerOpen = false },
-                        isLiked = playback.track?.let { it.key in likedKeys } == true,
-                        onToggleLike = {
-                            playback.track?.let { SonoraBackend.toggleLiked(context, it) }
-                        },
-                        onToggleShuffle = { SonoraPlayer.toggleShuffle() },
-                        onCycleRepeat = { SonoraPlayer.cycleRepeat() },
-                        onAddToPlaylist = { addTarget = playback.track },
-                        onOpenArtist = { artistName ->
-                            openArtistName = artistName
-                            openAlbumName = null
-                            openPlaylistId = null
-                            tab = MainTab.Library
-                            playerOpen = false
-                        },
-                        onOpenAlbum = { albumName ->
-                            openAlbumName = albumName
-                            openArtistName = null
-                            openPlaylistId = null
-                            tab = MainTab.Library
-                            playerOpen = false
-                        },
-                    )
-                }
-            }
-
-            if (spotifyImport) {
-                SpotifyImportDialog(
-                    state = importRunner.state.collectAsState().value,
-                    onStart = { link -> importRunner.start(scope, link) },
-                    onConfirm = { draft ->
-                        scope.launch { importRunner.confirm(draft) }
-                    },
-                    onDismiss = {
-                        spotifyImport = false
-                        importRunner.dismiss()
-                    },
-                )
-            }
-
-            AddToPlaylistFlow(
-                track = addTarget,
-                playlists = playlists,
-                onDismiss = { addTarget = null },
-                onAdd = { playlist, track ->
-                    SonoraBackend.addToPlaylist(context, playlist.id, track)
-                    addTarget = null
-                },
-                onCreateWithTrack = { name, track ->
-                    SonoraBackend.createPlaylist(context, name, track)
-                    addTarget = null
-                },
-            )
-        }
-
-        else -> ConnectScreen(state = current)
+        // The Soulseek session is not the app's front door any more.
+        //
+        // YouTube Music search, streaming and the Spotify import all work without a Soulseek
+        // account — they are plain HTTPS to a public catalogue. Gating the whole app on a login to a
+        // file-sharing network would mean a listener who only wants to search and listen to
+        // YouTube could not open the app at all, and the network is where downloads come from
+        // rather than where music is found.
+        //
+        // So the tabs are always drawn, and the Connect screen becomes one of them: what the network
+        // is for, offered rather than required.
+        else -> MainTabs(connected = false, state = current)
     }
 }
 
@@ -356,6 +159,13 @@ private enum class MainTab(val label: String) {
     Search("Search"),
     Library("Library"),
     Settings("Settings"),
+    /**
+     * The Soulseek network, and where a listener connects to it.
+     *
+     * A tab rather than a front door: the catalogue does not need an account, so the network is
+     * where downloads come from rather than a condition for opening the app.
+     */
+    Network("Network"),
 }
 
 private fun MainTab.icon(): ImageVector = when (this) {
@@ -363,6 +173,7 @@ private fun MainTab.icon(): ImageVector = when (this) {
     MainTab.Search -> Icons.Filled.Search
     MainTab.Library -> Icons.AutoMirrored.Filled.List
     MainTab.Settings -> Icons.Filled.Settings
+    MainTab.Network -> Icons.Filled.CloudDownload
 }
 
 /** Shown above the tabs whenever something is loaded, on either screen. */
@@ -599,8 +410,262 @@ private fun ConnectScreen(state: BackendState) {
                 }
             }
 
-            // Handled by the caller.
-            is BackendState.Connected -> Unit
+            // Connected: the network is up, so this tab is a status page rather than a form. It is
+            // deliberately not blank — a tab that goes empty the moment it stops being useful is
+            // indistinguishable from a broken one.
+            is BackendState.Connected -> Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Connected", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    text = state.greeting.ifBlank { "Signed in to Soulseek" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    // Downloads come from here. Search and playback do not, which is why this is
+                    // a tab rather than the way in.
+                    text = "Searching and streaming work without this. " +
+                        "Connecting is for finding lossless files on the network.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(onClick = { SonoraBackend.disconnect(context) }) { Text("Disconnect") }
+            }
         }
     }
 }
+
+
+/**
+ * The app's tabs, whether or not the network is connected.
+ *
+ * [connected] says whether the Soulseek session is up, so the same drawing serves both cases:
+ * what the network is for is one tab, not a gate in front of the app.
+ */
+@Composable
+private fun MainTabs(connected: Boolean, state: BackendState) {
+        // Held here rather than at the root: the tabs only need it once they are being drawn, and
+        // the branch that decides whether to draw them has no Context to hand.
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+
+        // The import's own state, remembered here so a run survives a tab switch and a reconnect.
+        // The write half is handed in rather than reached for, because creating a playlist needs a
+        // Context this object only has once the tabs are being drawn.
+        val importRunner = remember {
+            SpotifyImportRunner { draft ->
+                SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
+                    ?: error("the import produced no playlist")
+            }
+        }
+
+        // Home first: it is where resuming and finding new music both start.
+        var tab by remember { mutableStateOf(MainTab.Home) }
+        var playerOpen by remember { mutableStateOf(false) }
+        var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
+        // The Spotify import is a sequence with its own state, so it outlives the screen that
+        // opened it — a listener who switches tabs mid-import should not lose their progress.
+        var spotifyImport by remember { mutableStateOf(false) }
+
+        // Held here rather than inside the Library so a playlist card on Home can open it.
+        var openPlaylistId by remember { mutableStateOf<String?>(null) }
+        var openArtistName by remember { mutableStateOf<String?>(null) }
+        var openAlbumName by remember { mutableStateOf<String?>(null) }
+        val playback by SonoraPlayer.state.collectAsState()
+        val playlists by SonoraBackend.playlists.collectAsState()
+        val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
+
+        // Binds to the playback service once the app is in use, so the first tap on a track
+        // is not waiting on a connection.
+        LaunchedEffect(Unit) { SonoraPlayer.connect(context) }
+
+        // Playlists outlive the session, so they are read once when the app is usable rather
+        // than on every visit to the Library.
+        LaunchedEffect(Unit) { SonoraBackend.refreshPlaylists(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshSettings(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshSearchHistory(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshPlayHistory(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshSaved(context) }
+
+        LaunchedEffect(playback.track, playback.isPlaying) {
+            while (playback.track != null) {
+                SonoraPlayer.syncPosition()
+                delay(500)
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // The screen headers are the top of the UI now that the app title bar is
+                    // gone, so the status bar has to be inset here instead.
+                    .statusBarsPadding(),
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    when (tab) {
+                        MainTab.Home -> HomeScreen(
+                            onImportSpotify = { spotifyImport = true },
+                            onRunSearch = { term ->
+                                // A suggestion on Home is really a pre-filled search, so this is
+                                // the whole action: go to Search and run it.
+                                tab = MainTab.Search
+                                SonoraBackend.search(context, term)
+                            },
+                            onOpenPlaylist = { id ->
+                                // The same handoff in the other direction: the playlist is shown by
+                                // the Library, so go there and ask it for that one.
+                                openPlaylistId = id
+                                tab = MainTab.Library
+                            },
+                        )
+                        MainTab.Search -> SearchScreen()
+                        MainTab.Library -> LibraryScreen(
+                            onRunSearch = { term ->
+                                tab = MainTab.Search
+                                SonoraBackend.search(context, term)
+                            },
+                            openPlaylistId = openPlaylistId,
+                            onOpenPlaylist = { openPlaylistId = it },
+                            onClosePlaylist = { openPlaylistId = null },
+                            openArtistName = openArtistName,
+                            onCloseArtist = { openArtistName = null },
+                            openAlbumName = openAlbumName,
+                            onCloseAlbum = { openAlbumName = null },
+                        )
+                        MainTab.Settings -> SettingsScreen()
+
+                        // The connect screen, reachable at any time, and showing the session once
+                        // there is one.
+                        MainTab.Network -> ConnectScreen(state = state)
+                    }
+                }
+
+                NowPlayingBar(onOpen = { playerOpen = true })
+
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    MainTab.entries.forEach { entry ->
+                        NavigationBarItem(
+                            selected = tab == entry,
+                            onClick = {
+                                // Tapping Search while already on it clears the search, which is
+                                // also what brings the recent queries back into view.
+                                if (tab == entry && entry == MainTab.Search) {
+                                    SonoraBackend.clearSearch()
+                                } else {
+                                    // Leaving the Library closes whatever it had open. That state
+                                    // used to live inside it and reset this way, and holding it up
+                                    // here should not change what the user sees.
+                                    if (entry != MainTab.Library) {
+                                        openPlaylistId = null
+                                        openArtistName = null
+                                        openAlbumName = null
+                                    }
+                                    tab = entry
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = entry.icon(),
+                                    contentDescription = null,
+                                )
+                            },
+                            label = { Text(entry.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.accentText,
+                                selectedTextColor = MaterialTheme.colorScheme.accentText,
+                                indicatorColor = MaterialTheme.colorScheme.background,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = playerOpen,
+                enter = slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(
+                        durationMillis = 240,
+                        easing = CubicBezierEasing(0.1f, 1f, 0.1f, 1f),
+                    ),
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = 180),
+                ),
+                exit = slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(
+                        durationMillis = 200,
+                        easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f),
+                    ),
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = 160),
+                ),
+            ) {
+                BackHandler { playerOpen = false }
+                NowPlayingScreen(
+                    onClose = { playerOpen = false },
+                    isLiked = playback.track?.let { it.key in likedKeys } == true,
+                    onToggleLike = {
+                        playback.track?.let { SonoraBackend.toggleLiked(context, it) }
+                    },
+                    onToggleShuffle = { SonoraPlayer.toggleShuffle() },
+                    onCycleRepeat = { SonoraPlayer.cycleRepeat() },
+                    onAddToPlaylist = { addTarget = playback.track },
+                    onOpenArtist = { artistName ->
+                        openArtistName = artistName
+                        openAlbumName = null
+                        openPlaylistId = null
+                        tab = MainTab.Library
+                        playerOpen = false
+                    },
+                    onOpenAlbum = { albumName ->
+                        openAlbumName = albumName
+                        openArtistName = null
+                        openPlaylistId = null
+                        tab = MainTab.Library
+                        playerOpen = false
+                    },
+                )
+            }
+        }
+
+        if (spotifyImport) {
+            SpotifyImportDialog(
+                state = importRunner.state.collectAsState().value,
+                onStart = { link -> importRunner.start(scope, link) },
+                onConfirm = { draft ->
+                    scope.launch { importRunner.confirm(draft) }
+                },
+                onDismiss = {
+                    spotifyImport = false
+                    importRunner.dismiss()
+                },
+            )
+        }
+
+        AddToPlaylistFlow(
+            track = addTarget,
+            playlists = playlists,
+            onDismiss = { addTarget = null },
+            onAdd = { playlist, track ->
+                SonoraBackend.addToPlaylist(context, playlist.id, track)
+                addTarget = null
+            },
+            onCreateWithTrack = { name, track ->
+                SonoraBackend.createPlaylist(context, name, track)
+                addTarget = null
+            },
+        )
+    }
