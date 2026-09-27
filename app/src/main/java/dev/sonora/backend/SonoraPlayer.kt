@@ -220,28 +220,57 @@ object SonoraPlayer {
         val playable = tracks.filter { it.isDownloaded || it.isRemote }
         if (playable.isEmpty()) return
 
-        scope.launch {
-            val mediaItems = playable.mapNotNull { track ->
-                itemFor(track)?.let { track to it }
-            }.toMap()
+        val wanted = tracks.getOrNull(startIndex)?.key
+        val index = playable.indexOfFirst { it.key == wanted }.coerceAtLeast(0)
 
-            val items = mediaItems.keys.mapNotNull { mediaItems[it] }
-            if (items.isEmpty()) {
-                Log.w(TAG, "nothing in the queue could be resolved")
+        // The queue and the state are published before anything is resolved.
+        //
+        // Resolving first is what made a tap feel broken: every item in the queue is a network
+        // round trip, and a page of search results is dozens of them, so the mini player did not
+        // appear until all of them had answered — seconds of nothing at all, on a screen where the
+        // listener has just pressed something. The queue is known immediately; only the audio is
+        // late.
+        queue = playable
+        _state.value = PlaybackState(track = playable[index], isResolving = true)
+
+        scope.launch {
+            // The tapped track is resolved first and on its own, because it is the only one whose
+            // latency is felt — resolving the rest alongside it would put them back in front of it.
+            // Everything else then resolves together, because nothing is waiting on any of it.
+            val byKey = HashMap<String, MediaItem>()
+            itemFor(playable[index])?.let { byKey[playable[index].key] = it }
+
+            if (byKey.isEmpty()) {
+                Log.w(TAG, "could not resolve ${playable[index].title}")
+                _state.value = PlaybackState(track = null, isResolving = false)
                 return@launch
             }
 
-            // The index the caller asked for may have been dropped along with an unresolvable
-            // track, so it is re-found by identity rather than reused as a position.
-            val index = playable.indexOfFirst { it.key == tracks.getOrNull(startIndex)?.key }
-                .takeIf { it >= 0 && mediaItems.containsKey(playable[it]) }
-                ?: 0
+            playable.forEachIndexed { position, track ->
+                if (position != index && track.key !in byKey) {
+                    itemFor(track)?.let { byKey[track.key] = it }
+                }
+            }
 
-            queue = playable
-            active.setMediaItems(items, index.coerceIn(0, items.lastIndex), 0L)
+            // Reassembled in the order they were handed over, not in the order they resolved. A
+            // queue that starts with whatever happened to be asked for first is not a queue.
+            val items = playable.mapNotNull { byKey[it.key] }
+            if (items.isEmpty()) {
+                Log.w(TAG, "nothing in the queue could be resolved")
+                _state.value = PlaybackState(track = null, isResolving = false)
+                return@launch
+            }
+
+            // The index asked for may have moved, because a track that would not resolve is dropped
+            // rather than handed to the player as something it cannot play.
+            val resolvedIndex = playable.indexOfFirst { it.key == playable[index].key }
+                .let { wanted -> items.indexOfFirst { it.mediaId == playable[wanted].key } }
+                .let { if (it >= 0) it else 0 }
+
+            active.setMediaItems(items, resolvedIndex, 0L)
             active.prepare()
             active.play()
-            updateTrack(active, index.coerceIn(0, items.lastIndex))
+            updateTrack(active, resolvedIndex)
         }
     }
 
@@ -250,7 +279,22 @@ object SonoraPlayer {
      * has to carry.
      */
     private suspend fun itemFor(track: LibraryTrack): MediaItem? {
-        track.file?.let { return MediaItem.fromUri(Uri.fromFile(it)) }
+        track.playableUri?.let { uri ->
+            // The id is set here too, not only on the streaming branch. It is what the queue is
+            // searched by to work out where playback actually started, and an item without one
+            // never matches — which silently sent every local tap to the top of the list.
+            return MediaItem.Builder()
+                .setUri(Uri.parse(uri))
+                .setMediaId(track.key)
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album)
+                        .build(),
+                )
+                .build()
+        }
 
         val audio = resolved[track.key] ?: resolve(track) ?: return null
         return MediaItem.Builder()
