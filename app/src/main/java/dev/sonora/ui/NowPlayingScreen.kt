@@ -283,104 +283,106 @@ fun NowPlayingScreen(
                 label = "wordsAlpha",
             )
 
+            // The sleeve and the words share one square, crossfaded. Stacked as two squares they
+            // were two full-width blocks in a column, which is twice the height the screen has: the
+            // second was squeezed to nothing and drew a music note where the cover should be.
+            //
             // The same square the sleeve occupied, so the words take the cover's place rather than
             // the cover's place *and* the room below it. A pane measured against the whole column
             // pushes the transport off the bottom of the screen, which is where the thing that
             // turns the lyrics off is.
-            // A track that could not be fetched says so, in the place the picture would be, and
-            // offers the two things a listener can actually do about it. A spinner that never stops
-            // is worse than nothing: it says "working on it" for as long as it is on screen.
-            val problem = playback.problem
-            if (problem != null) {
-                UnplayableState(
-                    track = track,
-                    reason = problem,
-                    onRetry = { SonoraPlayer.play(context, track) },
-                    onSkip = { SonoraPlayer.next() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f),
-                )
-            }
-
-            if (wordsAlpha > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .graphicsLayer { alpha = wordsAlpha },
-                ) {
-                    LyricsPane(
-                        lyrics = lyrics,
-                        positionMs = playback.positionMs,
-                    )
-                }
-            }
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .graphicsLayer { translationX = artOffset.value }
-                    .graphicsLayer {
-                        alpha = if (problem != null) 0f else artAlpha
-                        // The sleeve shrinks a little as the words take over, so the two are not
-                        // fighting for the same square.
-                        val scale = 1f - (1f - artAlpha) * 0.08f
-                        scaleX = scale
-                        scaleY = scale
-                    }
-                    .draggable(
-                        orientation = Orientation.Horizontal,
-                        enabled = !isSwitching,
-                        state = rememberDraggableState { delta ->
-                            totalDragX += delta
-                            coroutineScope.launch {
-                                artOffset.snapTo(totalDragX)
-                            }
-                        },
-                        onDragStopped = { velocity ->
-                            if (totalDragX < -switchThresholdPx || velocity < -400f) {
-                                animateNext()
-                            } else if (totalDragX > switchThresholdPx || velocity > 400f) {
-                                animatePrevious()
-                            } else {
-                                coroutineScope.launch {
-                                    artOffset.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = Spring.StiffnessMedium,
-                                        ),
-                                    )
-                                    totalDragX = 0f
-                                }
-                            }
-                        },
-                    )
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
+                    .aspectRatio(1f),
             ) {
-                // Asked for at sleeve size rather than row size. The default is a thumbnail sized
-                // for a list row, and stretching one of those over an artwork that fills the screen
-                // is what makes a cover go soft — the pixels are simply not there, and no amount of
-                // decoding more carefully would have found them.
-                val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
-                if (artwork != null) {
-                    Image(
-                        bitmap = artwork,
-                        contentDescription = "Album artwork",
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                if (wordsAlpha > 0f) {
+                    LyricsPane(
+                        lyrics = lyrics,
+                        positionMs = playback.positionMs,
+                        isPlaying = playback.isPlaying,
+                        modifier = Modifier.graphicsLayer { alpha = wordsAlpha },
+                    )
+                }
+
+                // A track that could not be fetched says so, in the place the picture would be, and
+                // offers the two things a listener can actually do about it. A spinner that never stops
+                // is worse than nothing: it says "working on it" for as long as it is on screen.
+                val problem = playback.problem
+                if (problem != null) {
+                    UnplayableState(
+                        track = track,
+                        reason = problem,
+                        onRetry = { SonoraPlayer.play(context, track) },
+                        onSkip = { SonoraPlayer.next() },
                         modifier = Modifier.fillMaxSize(),
                     )
-                } else {
-                    Icon(
-                        imageVector = Icons.Filled.MusicNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(72.dp),
-                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = artOffset.value }
+                        .graphicsLayer {
+                            alpha = if (problem != null) 0f else artAlpha
+                            // The sleeve shrinks a little as the words take over, so the two are not
+                            // fighting for the same square.
+                            val scale = 1f - (1f - artAlpha) * 0.08f
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .draggable(
+                            orientation = Orientation.Horizontal,
+                            enabled = !isSwitching,
+                            state = rememberDraggableState { delta ->
+                                totalDragX += delta
+                                coroutineScope.launch {
+                                    artOffset.snapTo(totalDragX)
+                                }
+                            },
+                            onDragStopped = { velocity ->
+                                if (totalDragX < -switchThresholdPx || velocity < -400f) {
+                                    animateNext()
+                                } else if (totalDragX > switchThresholdPx || velocity > 400f) {
+                                    animatePrevious()
+                                } else {
+                                    coroutineScope.launch {
+                                        artOffset.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                                stiffness = Spring.StiffnessMedium,
+                                            ),
+                                        )
+                                        totalDragX = 0f
+                                    }
+                                }
+                            },
+                        )
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Asked for at sleeve size rather than row size. The default is a thumbnail sized
+                    // for a list row, and stretching one of those over an artwork that fills the screen
+                    // is what makes a cover go soft — the pixels are simply not there, and no amount of
+                    // decoding more carefully would have found them.
+                    val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
+                    if (artwork != null) {
+                        Image(
+                            bitmap = artwork,
+                            contentDescription = "Album artwork",
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.MusicNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(72.dp),
+                        )
+                    }
                 }
             }
 
