@@ -42,6 +42,11 @@ object SpotifyLink {
             // A bare id, or a `spotify:` URI. Only the latter names a kind.
             return parseUri(text)
                 ?: text.takeIf { ID.matches(it) }?.let { SpotifyRef(it, SpotifyRef.Kind.UNKNOWN) }
+                // A link whose scheme was stripped, which is what a share sheet from some apps
+                // produces. Retried as a link rather than rejected, because the listener pasted
+                // something that *is* the right link and being told otherwise helps nobody.
+                ?: HOSTS.takeIf { text.substringBefore('/').lowercase() in it }
+                    ?.let { parse("https://$text") }
         }
 
         val afterScheme = text.substringAfter("://")

@@ -141,15 +141,17 @@ fun HomeScreen(
             }
         }
 
-        if (orderedPlaylists.isNotEmpty()) {
-            item {
-                PlaylistsRow(
-                    onImportSpotify = onImportSpotify,
-                    playlists = orderedPlaylists,
-                    byKey = tracks,
-                    onOpen = onOpenPlaylist,
-                )
-            }
+        // Unconditional, because the row leads with the import tile — which is the only way a
+        // playlist gets made here from somewhere else, and is therefore most needed by exactly the
+        // people who have no playlists yet. Gating it on `orderedPlaylists` would hide the import
+        // from every new install, which is the one case it is for.
+        item {
+            PlaylistsRow(
+                onImportSpotify = onImportSpotify,
+                playlists = orderedPlaylists,
+                byKey = tracks,
+                onOpen = onOpenPlaylist,
+            )
         }
 
         if (history.isNotEmpty()) {
@@ -224,7 +226,10 @@ private fun PlaylistsRow(
     val keys = remember(byKey) { byKey.mapTo(HashSet()) { it.key } }
 
     Column {
-        SectionHeader(title = "Your playlists", subtitle = "Collections you have made")
+        SectionHeader(
+            title = "Your playlists",
+            subtitle = "Collections you have made, and where new ones come from",
+        )
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = 20.dp),
