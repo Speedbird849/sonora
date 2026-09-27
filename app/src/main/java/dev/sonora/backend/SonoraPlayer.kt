@@ -20,6 +20,7 @@ import dev.sonora.ytm.YtmAudio
 import dev.sonora.ytm.YtmSearch
 import dev.sonora.ytm.YtmStream
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,8 @@ object SonoraPlayer {
      * network is the part that moves off: [resolve] switches to IO for the fetch and comes back.
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private var resolveJob: Job? = null
 
     /**
      * Called whenever a track begins, whoever started it.
@@ -482,22 +485,22 @@ object SonoraPlayer {
         _state.value = PlaybackState(track = playable[index], isResolving = true)
         _upNext.value = UpNext(queue = playable, index = index)
 
-        scope.launch {
-            // The tapped track is resolved first and on its own, because it is the only one whose
-            // latency is felt — resolving the rest alongside it would put them back in front of it.
-            // Everything else then resolves together, because nothing is waiting on any of it.
+        resolveJob?.cancel()
+        resolveJob = scope.launch {
+            // The tapped track is resolved first so playback starts immediately.
             val byKey = HashMap<String, MediaItem>()
-            itemFor(playable[index])?.let { byKey[playable[index].key] = it }
+            val firstTrack = playable[index]
+            val firstItem = itemFor(firstTrack)
 
-            if (byKey.isEmpty()) {
-                Log.w(TAG, "could not resolve ${playable[index].title}")
+            if (firstItem == null) {
+                Log.w(TAG, "could not resolve ${firstTrack.title}")
                 // The track stays, with a reason. Dropping it removes the player from the screen,
                 // and a listener who tapped a song and watched the player disappear has learned
                 // that the button does nothing — which is the one thing this must not do.
                 _state.value = PlaybackState(
-                    track = playable[index],
+                    track = firstTrack,
                     isResolving = false,
-                    problem = if (playable[index].file == null) {
+                    problem = if (firstTrack.file == null) {
                         "Couldn't play this one. YouTube would not serve it just now."
                     } else {
                         null
@@ -505,45 +508,57 @@ object SonoraPlayer {
                 )
                 return@launch
             }
+            byKey[firstTrack.key] = firstItem
 
-            // The rest of the queue, asked for together rather than one after another.
-            //
-            // Every one of these is a round trip to a service that decides whether to serve the
-            // track at all, and they do not depend on each other — so asking for them in a row made
-            // the time to the first note of the tapped track proportional to the size of the queue.
-            // Playing one track out of a library of thirty-six took twenty seconds, all of it spent
-            // resolving the thirty-five nobody was waiting for; the track after that was instant,
-            // because by then they had all been done. Bounded so a library of a few thousand tracks
-            // does not open a few thousand sockets, and so the tapped track is never competing with
-            // the rest of a queue it is holding up.
-            val rest = playable.filterIndexed { position, _ -> position != index }
-            for (batch in rest.chunked(RESOLVE_BATCH)) {
-                val items = batch.map { track -> async { itemFor(track) } }.awaitAll()
-                batch.forEachIndexed { at, track ->
-                    items[at]?.let { byKey[track.key] = it }
+            // Tracks already on disk or cached in memory are resolved immediately without network.
+            for (track in playable) {
+                if (track.playableUri != null || resolved.containsKey(track.key)) {
+                    itemFor(track)?.let { byKey[track.key] = it }
                 }
             }
 
-            // Reassembled in the order they were handed over, not in the order they resolved. A
-            // queue that starts with whatever happened to be asked for first is not a queue.
-            val items = playable.mapNotNull { byKey[it.key] }
-            if (items.isEmpty()) {
-                Log.w(TAG, "nothing in the queue could be resolved")
-                _state.value = PlaybackState(track = null, isResolving = false)
-                return@launch
-            }
+            // Immediately start playing what is ready without waiting on remote tracks.
+            val initialItems = playable.mapNotNull { byKey[it.key] }
+            val resolvedIndex = initialItems.indexOfFirst { it.mediaId == firstTrack.key }.coerceAtLeast(0)
 
-            // The index asked for may have moved, because a track that would not resolve is dropped
-            // rather than handed to the player as something it cannot play.
-            val resolvedIndex = playable.indexOfFirst { it.key == playable[index].key }
-                .let { wanted -> items.indexOfFirst { it.mediaId == playable[wanted].key } }
-                .let { if (it >= 0) it else 0 }
-
-            active.setMediaItems(items, resolvedIndex, 0L)
+            active.setMediaItems(initialItems, resolvedIndex, 0L)
             active.prepare()
             active.play()
             updateTrack(active, resolvedIndex)
+
+            // Resolve remaining upcoming and previous remote tracks in the background.
+            val upcoming = playable.subList(index + 1, playable.size).filter { !byKey.containsKey(it.key) }
+            for (batch in upcoming.chunked(RESOLVE_BATCH)) {
+                val items = batch.map { track -> async { itemFor(track) } }.awaitAll()
+                val resolvedBatch = mutableListOf<MediaItem>()
+                batch.forEachIndexed { at, track ->
+                    items[at]?.let { item ->
+                        byKey[track.key] = item
+                        resolvedBatch.add(item)
+                    }
+                }
+                if (resolvedBatch.isNotEmpty() && _upNext.value.queue == playable) {
+                    active.addMediaItems(active.mediaItemCount, resolvedBatch)
+                }
             }
+
+            val previous = playable.subList(0, index).filter { !byKey.containsKey(it.key) }
+            if (previous.isNotEmpty()) {
+                val previousResolved = mutableListOf<MediaItem>()
+                for (batch in previous.chunked(RESOLVE_BATCH)) {
+                    val items = batch.map { track -> async { itemFor(track) } }.awaitAll()
+                    batch.forEachIndexed { at, track ->
+                        items[at]?.let { item ->
+                            byKey[track.key] = item
+                            previousResolved.add(item)
+                        }
+                    }
+                }
+                if (previousResolved.isNotEmpty() && _upNext.value.queue == playable) {
+                    active.addMediaItems(0, previousResolved)
+                }
+            }
+        }
     }
 
     /**
@@ -638,12 +653,16 @@ object SonoraPlayer {
 
 
     private fun updateTrack(active: MediaController, index: Int = active.currentMediaItemIndex) {
-        val track = queue.getOrNull(index) ?: return
+        val mediaId = active.currentMediaItem?.mediaId
+        val track = (if (mediaId != null) queue.find { it.key == mediaId } else null)
+            ?: queue.getOrNull(index)
+            ?: return
+        val queueIndex = queue.indexOfFirst { it.key == track.key }.let { if (it >= 0) it else index }
 
         // The panel shows which entry is sounding, so the index travels with the queue rather than
         // being read from the controller at the moment it is drawn — a shuffle reorders the
         // controller's own list, and a position in that list is not a position in this one.
-        _upNext.value = UpNext(queue = queue, index = index)
+        _upNext.value = UpNext(queue = queue, index = queueIndex)
         _state.value = PlaybackState(
             track = track,
             isPlaying = active.isPlaying,
