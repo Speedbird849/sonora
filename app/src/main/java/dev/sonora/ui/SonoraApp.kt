@@ -493,6 +493,7 @@ private fun MainTabs(state: BackendState) {
         LaunchedEffect(Unit) { SonoraBackend.refreshSearchHistory(context) }
         LaunchedEffect(Unit) { SonoraBackend.refreshPlayHistory(context) }
         LaunchedEffect(Unit) { SonoraBackend.refreshSaved(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshRecentTracks(context) }
 
         LaunchedEffect(playback.track, playback.isPlaying) {
             while (playback.track != null) {
@@ -500,6 +501,35 @@ private fun MainTabs(state: BackendState) {
                 delay(500)
             }
         }
+
+    // What the bar says and whether it offers a way back. Both come from what is open rather than
+    // from the tab: a playlist opened from Home is not a tab, and its own name is the only title
+    // that means anything while it is being read.
+    val pushedTitle = when {
+        openPlaylistId != null ->
+            playlists.firstOrNull { it.id == openPlaylistId }?.name
+
+        openArtistName != null -> openArtistName
+        openAlbumName != null -> openAlbumName
+        else -> null
+    }
+
+    val chromeTitle = pushedTitle ?: tab.label
+    val chromeBack: (() -> Unit)? = when {
+        openPlaylistId != null -> {
+            { openPlaylistId = null }
+        }
+
+        openArtistName != null -> {
+            { openArtistName = null }
+        }
+
+        openAlbumName != null -> {
+            { openAlbumName = null }
+        }
+
+        else -> null
+    }
 
     // One Haze state for the whole page. The bars and the top bar all sample the same source, which
     // is what lets a cover scrolling past show through the mini player and the top bar in the same
@@ -565,6 +595,19 @@ private fun MainTabs(state: BackendState) {
         FrostedTopBar(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
+            // Names whatever is open, so the bar is a bar rather than a strip of glass. A page
+            // heading that scrolls away is the right home for a title; this is what says where you
+            // are when the heading has gone, which is most of the time on a scrolled page.
+            leading = {
+                Text(
+                    text = chromeTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            onBack = chromeBack,
         )
 
         // The floor the bars stand on, drawn over the page and under everything else. Without it a
@@ -589,6 +632,7 @@ private fun MainTabs(state: BackendState) {
                 MiniPlayer(
                     track = track,
                     isPlaying = playback.isPlaying,
+                    isResolving = playback.isResolving,
                     onPlayPause = { SonoraPlayer.togglePlayPause() },
                     onNext = { SonoraPlayer.next() },
                     onPrevious = { SonoraPlayer.previous() },
