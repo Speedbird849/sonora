@@ -724,7 +724,7 @@ private fun MainTabs(state: BackendState) {
         }
 
         if (spotifyImport) {
-            SpotifyImportDialog(
+            SpotifyImportSheet(
                 state = importRunner.state.collectAsState().value,
                 onStart = { link -> importRunner.start(scope, link) },
                 onConfirm = { draft ->

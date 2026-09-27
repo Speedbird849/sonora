@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -18,14 +20,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,28 +44,37 @@ import dev.sonora.spotify.SpotifyImportState
 /**
  * Brings a Spotify playlist in as a playlist here.
  *
- * A dialog rather than a screen because it is three steps with nothing to navigate between: paste a
- * link, watch it work, confirm. The middle step is a real wait — a hundred tracks is a hundred
- * searches — so it gets a determinate bar and a count, and the confirm step shows what was found
- * *and* what was not.
+ * A sheet rather than a dialog: this is three steps with nothing to navigate between — paste a
+ * link, watch it work, confirm — but the middle step lists a hundred titles, and a dialog is
+ * measured against its own content, so a list that long either throws or forces the whole thing
+ * into a fixed-height box. A sheet grows to what it needs and comes up from the bottom edge, which
+ * is where a list of tracks is expected to appear.
+ *
+ * The wait is a real one — a hundred tracks is a hundred searches — so it gets a determinate bar
+ * and a count. An indeterminate spinner for fifteen seconds reads as a hang rather than as work.
  *
  * The shortfall is the point of the preview. Spotify and YouTube do not hold the same catalogue, so
  * some tracks will find nothing, and quietly dropping them would report an import that is not what
  * was asked for. They are listed, struck through, so the number is visible before the playlist is
  * written rather than after.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SpotifyImportDialog(
+internal fun SpotifyImportSheet(
     state: SpotifyImportState,
     onStart: (String) -> Unit,
     onConfirm: (SpotifyDraft) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        title = { Text("Import from Spotify") },
-        text = {
+    SonoraSheet(onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 20.dp),
+        ) {
+            SheetHeading("Import from Spotify")
+
             when (state) {
                 is SpotifyImportState.Idle -> ImportForm(onStart, null)
 
@@ -83,10 +92,15 @@ internal fun SpotifyImportDialog(
                     fraction(state.done, state.total),
                 )
 
-                is SpotifyImportState.Ready -> ImportPreview(state.draft)
+                is SpotifyImportState.Ready -> ImportPreview(
+                    draft = state.draft,
+                    onConfirm = { onConfirm(state.draft) },
+                )
 
                 is SpotifyImportState.Done -> Column(
-                    Modifier.fillMaxWidth(),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 22.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -100,16 +114,17 @@ internal fun SpotifyImportDialog(
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = onDismiss) { Text("Close") }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(13.dp),
+                    ) {
+                        Text("Close", style = MaterialTheme.typography.titleMedium)
+                    }
                 }
             }
-        },
-        confirmButton = {
-            if (state is SpotifyImportState.Ready) {
-                TextButton(onClick = { onConfirm(state.draft) }) { Text("Add ${state.draft.matched.size}") }
-            }
-        },
-    )
+        }
+    }
 }
 
 private fun fraction(done: Int, total: Int) =
@@ -120,7 +135,11 @@ private fun ImportForm(onStart: (String) -> Unit, failure: SpotifyImportState.Re
     var link by remember { mutableStateOf("") }
     val submit = { if (link.isNotBlank()) onStart(link.trim()) }
 
-    Column(Modifier.fillMaxWidth()) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 22.dp),
+    ) {
         Text(
             text = "Paste a Spotify playlist or album link. It is read from Spotify's own public " +
                 "page — no account, and nothing is downloaded unless you ask.",
@@ -128,12 +147,13 @@ private fun ImportForm(onStart: (String) -> Unit, failure: SpotifyImportState.Re
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
+        // Told to be a shade darker than the sheet it sits on: a field the colour of the card it
+        // is in is a field nobody can see.
+        PillTextField(
             value = link,
             onValueChange = { link = it },
-            label = { Text("Playlist or album link") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            placeholder = "Playlist or album link",
+            container = MaterialTheme.colorScheme.surface,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(onGo = { submit() }),
         )
@@ -150,9 +170,11 @@ private fun ImportForm(onStart: (String) -> Unit, failure: SpotifyImportState.Re
             onClick = submit,
             enabled = link.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(13.dp),
         ) {
-            Text("Import")
+            Text("Import", style = MaterialTheme.typography.titleMedium)
         }
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -168,6 +190,7 @@ private fun Working(message: String, fraction: Float?) {
     Column(
         Modifier
             .fillMaxWidth()
+            .padding(horizontal = 22.dp)
             .heightIn(min = 120.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -188,8 +211,12 @@ private fun Working(message: String, fraction: Float?) {
 }
 
 @Composable
-private fun ImportPreview(draft: SpotifyDraft) {
-    Column(Modifier.fillMaxWidth()) {
+private fun ImportPreview(draft: SpotifyDraft, onConfirm: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 22.dp),
+    ) {
         Text(
             text = draft.title,
             style = MaterialTheme.typography.titleMedium,
@@ -225,9 +252,13 @@ private fun ImportPreview(draft: SpotifyDraft) {
             )
         }
 
-        // Bounded rather than unbounded: a LazyColumn in a dialog is measured with no height limit
-        // and throws, and a hundred rows would run off the screen.
-        LazyColumn(Modifier.heightIn(max = 220.dp)) {
+        // Bounded because a sheet's height is bounded: a LazyColumn given the whole sheet measures
+        // itself against infinity and takes every row, running off the top of the screen rather
+        // than scrolling.
+        LazyColumn(
+            modifier = Modifier.heightIn(max = 280.dp),
+            contentPadding = PaddingValues(top = 6.dp),
+        ) {
             itemsIndexed(draft.matches) { _, match ->
                 val missed = match.track == null
                 Row(
@@ -266,6 +297,19 @@ private fun ImportPreview(draft: SpotifyDraft) {
                     }
                 }
             }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            onClick = onConfirm,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(13.dp),
+        ) {
+            Text(
+                text = "Add ${draft.matched.size} tracks",
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
     }
 }
