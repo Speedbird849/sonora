@@ -1,19 +1,17 @@
 package dev.sonora.playback
 
-import android.util.Log
-
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import dev.sonora.ytm.YtmHttp
+import dev.sonora.ytm.YtmStream
 import java.io.IOException
 import okhttp3.Response
 
@@ -21,23 +19,25 @@ import okhttp3.Response
 private const val TAG = "StreamDataSource"
 
 /**
- * The HTTP source a resolved YouTube Music stream is played through.
+ * The HTTP source a resolved YouTube Music stream is played through, read in bounded ranges.
  *
- * Exists because of one thing googlevideo insists on: the headers that fetched a stream URL are
- * the headers it expects to see again. A URL resolved with one client identity and fetched with
- * another is either throttled to a crawl or refused with 403, and the failure looks like a network
- * problem rather than a mistake.
+ * Exists because of two things googlevideo insists on, and both of them present as a refusal rather
+ * than as a warning.
  *
- * Which identity minted a URL differs per stream, so the headers are asked for per open rather than
- * fixed when this is built — see [factory].
+ * The first is identity: the headers that fetched a stream URL are the headers it expects to see
+ * again, and a URL resolved with one client and fetched with another is throttled to a crawl or
+ * refused with 403. Which identity minted a URL differs per stream, so the headers are asked for per
+ * open rather than fixed when this is built — see [factory].
  *
- * Shares [YtmHttp.client] with the resolver for the same reason: DNS, address family and the
- * connection pool all have to match between the request that minted the URL and the one that
+ * The second is shape. googlevideo serves its media in ranges and refuses the alternatives: a request
+ * for a whole track is answered 403, and so is one for a range wider than the minting client will
+ * serve. So every read here is a closed range no wider than that client, and the length the player
+ * is told about is the whole stream even though it arrives a range at a time — see [StreamRanges] for
+ * the rules and why they are what they are. Nothing above this has to know the chunking happened.
+ *
+ * Shares [YtmHttp.client] with the resolver for the same reason as the headers: DNS, address family
+ * and the connection pool all have to match between the request that minted the URL and the one that
  * fetches the bytes.
- *
- * Hand-rolled rather than Media3's own HTTP source because all this needs is to add a fixed set of
- * headers to a GET and hand the body to the player, and that source is built around the
- * `DefaultHttpDataSource` request model.
  */
 @UnstableApi
 internal class StreamDataSource(
@@ -50,6 +50,27 @@ internal class StreamDataSource(
     private var response: Response? = null
 
     private var opened: Uri? = null
+
+    /** The read the player asked for, where it has got to, and how much is left of it. */
+    private var read: DataSpec? = null
+    private var position = 0L
+    private var remaining = 0L
+
+    /** The range currently open, and how much of it is left. */
+    private var chunkEnd = -1L
+
+    /** How wide this stream's ranges may be, and how long the whole thing is. */
+    private var limit = Long.MAX_VALUE
+    private var total: Long? = null
+
+    /**
+     * Set when the request cannot be improved on, and is simply forwarded.
+     *
+     * A URL that declares no length has no last range to end on, so it is read the way it asks to
+     * be. Nothing this app mints is in that position; a downloaded file never gets here at all — see
+     * [isStream].
+     */
+    private var asAsked = false
 
     /**
      * The source used for anything that is not an HTTP URL.
@@ -72,68 +93,98 @@ internal class StreamDataSource(
 
         transferInitializing(dataSpec)
 
-        val opened = try {
-            YtmHttp.client.newCall(request(dataSpec)).execute()
+        val url = dataSpec.uri.toString()
+        total = StreamRanges.declaredLength(url)
+        limit = StreamRanges.limitFor(url)
+        read = dataSpec
+        position = dataSpec.position
+        asAsked = total == null
+
+        if (asAsked) {
+            remaining = C.LENGTH_UNSET.toLong()
+            openChunk(UNBOUNDED)
+            return -1L
+        }
+
+        val whole = total!!
+        val end = StreamRanges.end(dataSpec.position, dataSpec.length, whole, limit)
+        if (end == null) {
+            remaining = 0L
+            return 0L
+        }
+        remaining = end - dataSpec.position + 1
+        openChunk(end)
+        return remaining
+    }
+
+    /**
+     * Opens the next range of the read, at most as wide as this stream is served.
+     *
+     * The refused range is the one to log by name. Which client minted a URL is the first thing
+     * worth knowing when a stream dies, and by the time this surfaces as a playback error there is
+     * nowhere else left to learn it from.
+     */
+    private fun openChunk(end: Long) {
+        val asked = requireNotNull(read)
+        chunkEnd = end
+        val spec = asked.buildUpon().setPosition(position).build()
+        try {
+            val call = YtmHttp.client.newCall(request(spec, end))
+            val openedCall = call.execute()
+            if (!openedCall.isSuccessful) {
+                report(spec, openedCall)
+                openedCall.close()
+                throw HttpDataSource.InvalidResponseCodeException(
+                    openedCall.code,
+                    /* responseMessage = */ null,
+                    /* cause = */ null,
+                    openedCall.headers.toMultimap(),
+                    spec,
+                    /* responseBody = */ ByteArray(0),
+                )
+            }
+            response = openedCall
         } catch (e: IOException) {
             throw HttpDataSource.HttpDataSourceException.createForIOException(
                 e,
-                dataSpec,
+                spec,
                 HttpDataSource.HttpDataSourceException.TYPE_OPEN,
             )
         }
 
-        if (!opened.isSuccessful) {
-            val code = opened.code
-            opened.close()
-            // Said because a bare "Response code: 403" twenty frames into playback is not something
-            // anybody can act on. The two usual causes, in the order they are worth checking: the
-            // request went out un-ranged, which this source used to do and which these URLs refuse
-            // outright, and the URL has aged out — googlevideo mints them with a `expire` a few hours
-            // out, and past it the same request is refused too.
-            if (code == 403) {
-                Log.w(
-                    TAG,
-                    "googlevideo refused the bytes for $code. The request was ranged at " +
-                        "${dataSpec.position}+${dataSpec.length}; if that was a whole-file read the " +
-                        "URL was minted for a profile that will not serve one, and if it was not, " +
-                        "the URL has aged out and the track has to be resolved again.",
-                )
-            }
-            throw HttpDataSource.InvalidResponseCodeException(
-                opened.code,
-                /* responseMessage = */ null,
-                /* cause = */ null,
-                opened.headers.toMultimap(),
-                dataSpec,
-                /* responseBody = */ ByteArray(0),
-            )
-        }
-
-        response = opened
-        transferStarted(dataSpec)
-
-        val declared = opened.body?.contentLength() ?: -1L
-        if (declared >= 0) return declared
-
-        // A ranged request needs its length up front to know where the range ends, and without a
-        // content length there is no way to work it out. Refusing is the honest answer: treating it
-        // as "stream to the end" would hand the player the whole file for what was asked as a slice.
-        if (dataSpec.position != 0L || dataSpec.length != androidx.media3.common.C.LENGTH_UNSET.toLong()) {
-            throw HttpDataSource.HttpDataSourceException(
-                "no content length for a ranged request",
-                dataSpec,
-                HttpDataSource.HttpDataSourceException.TYPE_OPEN,
-            )
-        }
-        return -1L
+        transferStarted(spec)
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         platform?.let { return it.read(buffer, offset, length) }
+        if (!asAsked && remaining == 0L) return C.RESULT_END_OF_INPUT
 
-        val read = response?.body?.source()?.read(buffer, offset, length) ?: -1
-        if (read > 0) bytesTransferred(read)
-        return read
+        // A range that ends early is re-opened for the part that did not arrive, which is also how
+        // the step to the next range happens. The attempt limit is what stops a server that has
+        // decided to send nothing from spinning here forever.
+        repeat(MAX_EMPTY_RANGES) {
+            if (!asAsked && position > chunkEnd) {
+                closeChunk()
+                openChunk(
+                    StreamRanges.end(position, C.LENGTH_UNSET.toLong(), total, limit)
+                        ?: return C.RESULT_END_OF_INPUT,
+                )
+            }
+            val wanted = if (asAsked) {
+                length
+            } else {
+                minOf(length.toLong(), chunkEnd - position + 1).toInt()
+            }
+            val got = response?.body?.source()?.read(buffer, offset, wanted) ?: C.RESULT_END_OF_INPUT
+            if (got != C.RESULT_END_OF_INPUT) {
+                position += got
+                if (!asAsked) remaining -= got
+                bytesTransferred(got)
+                return got
+            }
+            if (asAsked) return C.RESULT_END_OF_INPUT
+        }
+        return C.RESULT_END_OF_INPUT
     }
 
     /** The URI this source was opened for, which the base class and the loader both ask for. */
@@ -142,19 +193,51 @@ internal class StreamDataSource(
     override fun close() {
         platform?.close()
         platform = null
-        response?.close()
-        response = null
-        opened = null
+        closeChunk()
+        read = null
+        remaining = 0L
+        total = null
         transferEnded()
     }
 
-    private fun request(dataSpec: DataSpec) = okhttp3.Request.Builder()
+    private fun closeChunk() {
+        response?.close()
+        response = null
+        chunkEnd = -1L
+    }
+
+    private fun request(dataSpec: DataSpec, end: Long) = okhttp3.Request.Builder()
         .url(dataSpec.uri.toString())
         .apply { headersFor(dataSpec.uri.toString()).forEach { (name, value) -> header(name, value) } }
-        .apply { rangeHeader(dataSpec.position, dataSpec.length)?.let { header("Range", it) } }
+        .apply { if (end != UNBOUNDED) header("Range", "bytes=$position-$end") }
         .build()
 
+    /**
+     * Hands a refusal back to whoever minted the URL that was refused, by name.
+     *
+     * So the client that minted it is retired for the track that wanted it, which is the only thing
+     * that makes the next attempt a different one. A 403 here is nearly always that client's
+     * problem rather than the address's: a URL this app minted is bound to the connection that
+     * minted it, and both went out over the same client.
+     */
+    private fun report(spec: DataSpec, refused: Response) {
+        if (refused.code != 403) return
+        val url = spec.uri
+        Log.w(
+            TAG,
+            "googlevideo refused bytes ${refused.code} at $position for " +
+                "${url.host} as ${url.getQueryParameter("c")}",
+        )
+        YtmStream.onRefused(url.toString())
+    }
+
     companion object {
+        /** Enough to ride out a truncated range, not enough to hang on a dead one. */
+        const val MAX_EMPTY_RANGES = 3
+
+        /** The end of a range that is not closed, for a URL that declares no length. */
+        private const val UNBOUNDED = -1L
+
         /**
          * A factory that looks the headers up per URL as it opens.
          *
@@ -168,36 +251,14 @@ internal class StreamDataSource(
         ): DataSource.Factory =
             DataSource.Factory { StreamDataSource(headersFor, appContext) }
 
-    /**
-     * Whether a URI is one of ours to fetch.
-     *
-     * The check that keeps a downloaded file out of this source. It is an HTTP client with a fixed
-     * set of googlevideo headers, and handed a `content://` URI it cannot open one — so the player
-     * asks this first and sends everything else to the factory that knows how to read it.
-     */
-    fun isStream(uri: Uri): Boolean = uri.scheme == "http" || uri.scheme == "https"
+        /**
+         * Whether a URI is one of ours to fetch.
+         *
+         * The check that keeps a downloaded file out of this source. It is an HTTP client with a
+         * fixed set of googlevideo headers, and handed a `content://` URI it cannot open one — so
+         * the player asks this first and sends everything else to the factory that knows how to
+         * read it.
+         */
+        fun isStream(uri: Uri): Boolean = uri.scheme == "http" || uri.scheme == "https"
     }
 }
-
-/**
- * The `Range` header for a read of [length] bytes at [position], or null when the whole body is
- * wanted.
- *
- * Without this the player asks for a stream the way a browser would — the entire file, in one
- * response — and googlevideo answers `403`. Not a throttle, not a stale URL, and not the client
- * identity: the URLs YouTube mints for its streaming profiles are served in ranges, and a request for
- * the whole thing is refused. The same URL asked for `bytes=0-98303` returns 206 and 98,304 bytes of
- * audio, twenty seconds after a 403 for the un-ranged request.
- *
- * So every read the player makes is ranged, and the length is restated the way `DataSpec` counts it:
- * a position and a length, where [C.LENGTH_UNSET] is to the end of the stream. The end is inclusive,
- * so a length of one byte at position zero is `bytes=0-0` and not `bytes=0-1`.
- */
-@UnstableApi
-internal fun rangeHeader(position: Long, length: Long): String? {
-    val toEnd = length == C.LENGTH_UNSET.toLong()
-    if (position == 0L && toEnd) return null
-    val end = if (toEnd) "" else (position + length - 1).toString()
-    return "bytes=$position-$end"
-}
-
