@@ -2,6 +2,7 @@ package dev.sonora.ytm
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
@@ -28,6 +29,10 @@ object YtmHttp {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        // Stated rather than left to the default, for the same reason as the client above: a
+        // redirect that is not followed looks exactly like a server that refused.
+        .followRedirects(true)
+        .followSslRedirects(true)
         .dispatcher(Dispatcher().apply { maxRequestsPerHost = 16 })
         .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
         .build()
@@ -49,6 +54,13 @@ object YtmHttp {
             connectTimeoutMillis = 15_000
             socketTimeoutMillis = 20_000
         }
+        // Followed here rather than left to the engine, because two layers of "do you follow a
+        // 302?" is two settings that can disagree and the failure is silent: the caller gets a
+        // 302 where a 200 was expected, with nothing in the log to say a redirect was involved.
+        // The player resolver fetches YouTube's own pages to read its configuration out of them,
+        // and those pages redirect routinely.
+        install(HttpRedirect) { checkHttpMethod = false }
+
         expectSuccess = false
     }
 }

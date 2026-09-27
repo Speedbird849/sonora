@@ -66,7 +66,14 @@ object SonoraPlayer {
     /** Resolved streams, by track key. A YouTube URL expires, so this is a cache and not a store. */
     private val resolved = HashMap<String, YtmAudio>()
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /**
+     * IO, not the main thread.
+     *
+     * Almost everything here is a round trip — resolving a stream, asking the catalogue, moving
+     * the queue — and the main thread is where the player's own frames are drawn. A coroutine on
+     * `Dispatchers.Main.immediate` that suspends on a socket is a frame that waits on a socket.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Called whenever a track begins, whoever started it.
