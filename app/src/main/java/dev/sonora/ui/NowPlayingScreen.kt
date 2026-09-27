@@ -336,71 +336,17 @@ fun NowPlayingScreen(
                     .fillMaxWidth()
                     .padding(top = 16.dp),
             ) {
-                Slider(
-                    value = played,
-                    onValueChange = { scrubbing = it },
-                    onValueChangeFinished = {
-                        val target = scrubbing
-                        scrubbing = null
-                        if (target != null) {
-                            SonoraPlayer.seekTo((target.toDouble() * duration).toLong())
-                        }
-                    },
+                // A bar with no knob that thickens under the finger, rather than a Material
+                // slider. The knob is a thing to aim at on a full-width control, and on a phone
+                // the finger is already sitting exactly where it is; what is needed instead is a
+                // line that is easy to see and hard to miss, which is what growing it while
+                // dragging is for.
+                PlayerScrubber(
+                    positionMs = (played.toDouble() * duration).toLong(),
+                    durationMs = duration,
                     // A track with no known duration cannot be seeked into.
-                    enabled = duration > 0L,
-                    // A dot rather than the Material default: the default thumb is a tall bar that
-                    // reads as a rendering glitch against a track this thin. Touch target is
-                    // unaffected — that comes from the slider's layout, not the thumb's size.
-                    // Supplied rather than defaulted: the Material track draws a stop dot at the
-                    // far end, which reads as a second handle on a track this thin.
-                    track = { sliderState ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(sliderState.value)
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.accentText),
-                            )
-                        }
-                    },
-                    thumb = {
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.accentText,
-                                    shape = CircleShape,
-                                ),
-                        )
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.accentText,
-                        activeTrackColor = MaterialTheme.colorScheme.accentText,
-                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                    onSeek = { SonoraPlayer.seekTo(it) },
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    // Shows where the finger is, not where playback has got to, so the numbers and
-                    // the handle agree while scrubbing.
-                    Text(
-                        text = formatMillis((played.toDouble() * duration).toLong()),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Text(
-                        text = formatMillis(duration),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
             }
 
             Row(
