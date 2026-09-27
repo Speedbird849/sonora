@@ -480,19 +480,9 @@ private fun TracksSection(
                         track.album,
                         track.file?.let { formatBytes(track.size) },
                     ).joinToString("  \u00b7  "),
-                    trailing = {
-                        LikeGlyph(
-                            liked = isLiked,
-                            onClick = { onToggleLike(track) },
-                            modifier = Modifier.size(36.dp),
-                            disc = false,
-                            tint = if (isLiked) {
-                                MaterialTheme.colorScheme.accentText
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    },
+                    // The row's only control is its overflow. A heart on every line would be the
+                    // same action six times over, and it is in the menu it opens anyway.
+                    divider = index < tracks.lastIndex,
                 )
             }
         }

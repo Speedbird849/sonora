@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.sonora.backend.LibraryTrack
@@ -228,9 +229,11 @@ internal fun TrackActionsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // Capped rather than unbounded: a sheet with a long list and no cap grows past the
-                // screen and its own actions go off the bottom with nothing to scroll them back.
-                .heightIn(max = 560.dp)
+                // Capped against the window rather than at a fixed height: a sheet with a long
+                // list and no cap grows past the screen and its own actions go off the bottom with
+                // nothing to scroll them back, while a fixed cap is either too short for a track
+                // with an album and an artist to open, or too tall on a small screen.
+                .heightIn(max = LocalConfiguration.current.screenHeightDp.times(0.72f).dp)
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),

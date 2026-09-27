@@ -104,6 +104,8 @@ fun HomeScreen(
         playlists.sortedByDescending { it.id == Playlists.LIKED_ID }
     }
 
+    val activeDownload = download as? DownloadState.Downloading
+
     if (tracks.isEmpty() && playlists.isEmpty() && history.isEmpty()) {
         GettingStarted(onRunSearch = onRunSearch)
         return
@@ -114,13 +116,17 @@ fun HomeScreen(
         contentPadding = listContentPadding(extra = 24.dp, withMiniPlayer = playing),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        item {
-            Text(
-                text = "Listen now",
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
-            )
+        // The page's own name, and only when there is something under it. A heading over an empty
+        // shelf reads as a section that failed to load rather than as one with nothing in it yet.
+        if (recentTracks.isNotEmpty() || activeDownload != null) {
+            item {
+                Text(
+                    text = "Listen now",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+                )
+            }
         }
 
         val active = download
@@ -135,12 +141,9 @@ fun HomeScreen(
             }
         }
 
-        // First after the download, because it is the most actionable thing on the screen: the
-        // other rows say what exists, this one says what you were in the middle of.
-        if (recentTracks.isNotEmpty()) {
-            item { RecentlyPlayedRow(tracks = recentTracks) }
-        }
-
+        // The one thing the page leads with, and the only card on it that is bigger than a shelf
+        // card. It is the album you were in the middle of, so it goes first and everything else
+        // settles into the ordinary size that says "one of several".
         if (recentAlbums.isNotEmpty()) {
             item {
                 HeroShelf(
@@ -157,6 +160,12 @@ fun HomeScreen(
                     onOpen = { entry -> SonoraPlayer.play(context, entry.tracks, 0) },
                 )
             }
+        }
+
+        // Second, because it is a question about one specific record and the shelves above are
+        // about the library as a whole.
+        if (recentTracks.isNotEmpty()) {
+            item { RecentlyPlayedRow(tracks = recentTracks) }
         }
 
         if (moreAlbums.isNotEmpty()) {

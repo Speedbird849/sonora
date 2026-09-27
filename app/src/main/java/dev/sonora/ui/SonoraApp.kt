@@ -535,22 +535,6 @@ private fun MainTabs(state: BackendState) {
     // What the bar says and whether it offers a way back. Both come from what is open rather than
     // from the tab: a playlist opened from Home is not a tab, and its own name is the only title
     // that means anything while it is being read.
-    val chromeBack: (() -> Unit)? = when {
-        openPlaylistId != null -> {
-            { openPlaylistId = null }
-        }
-
-        openArtistName != null -> {
-            { openArtistName = null }
-        }
-
-        openAlbumName != null -> {
-            { openAlbumName = null }
-        }
-
-        else -> null
-    }
-
     // One Haze state for the whole page. The bars and the top bar all sample the same source, which
     // is what lets a cover scrolling past show through the mini player and the top bar in the same
     // frame — two states would sample two different snapshots and the page would tear between them.
@@ -560,14 +544,13 @@ private fun MainTabs(state: BackendState) {
         // The page is the blur source. Every frosted surface in the app samples this subtree, so
         // anything drawn outside it is invisible to the glass.
         Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
-            // Inset by the bar's whole height, so a page's first element starts under the bar
-            // rather than inside it. The bar carries the wordmark, so the band is the header
-            // rather than dead space, and a heading that began underneath the bar was invisible
-            // for as long as the page sat still.
+            // Inset by the status bar only. There is no bar across the top: every page carries a
+            // large heading that says what it is, and a second name above it was a smaller copy
+            // of that heading which disagreed with it the moment the heading scrolled away.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = topBarContentPadding()),
+                    .statusBarsPadding(),
             ) {
             when (tab) {
                 MainTab.Home -> HomeScreen(
@@ -629,19 +612,6 @@ private fun MainTabs(state: BackendState) {
             }
             }
         }
-
-        // The bar and the pane it is drawn over. Underneath the page rather than inside it, so the
-        // blur has something to sample.
-        TopBarBlur(hazeState = hazeState, modifier = Modifier.align(Alignment.TopCenter))
-        FrostedTopBar(
-            hazeState = hazeState,
-            modifier = Modifier.align(Alignment.TopCenter),
-            // A mark, not a title. Every page below has a large heading that says what it is and
-            // scrolls away with the page; a second name up here would be a smaller copy of it that
-            // does not move, so the two disagree the moment the heading leaves.
-            leading = { SonoraWordmark() },
-            onBack = chromeBack,
-        )
 
         // The floor the bars stand on, drawn over the page and under everything else. Without it a
         // track row scrolling past the tab bar is still fully opaque right up to the pill's edge,

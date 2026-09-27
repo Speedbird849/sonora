@@ -38,8 +38,8 @@ class SearchStatusTest {
     }
 
     @Test
-    fun `no results is not said over a row of catalogue matches`() {
-        assertNull(note(SearchState(query = "kid a"), catalogueShown = true))
+    fun `no results is not said over a row of albums or artists`() {
+        assertNull(note(SearchState(query = "kid a"), albumsAndArtistsShown = true))
     }
 
     @Test
@@ -57,7 +57,7 @@ class SearchStatusTest {
             peers = 2,
         )
 
-        assertEquals("2 on YouTube Music · 3 file(s) from 2 peer(s)", note(state))
+        assertEquals("2 on YouTube Music · 3 file(s) from 2 Soulseek peer(s)", note(state))
     }
 
     @Test
@@ -70,7 +70,7 @@ class SearchStatusTest {
             peers = 2,
         )
 
-        assertEquals("3 file(s) from 2 peer(s)", note(state, showYoutube = false))
+        assertEquals("3 file(s) from 2 Soulseek peer(s)", note(state, showYoutube = false))
         assertEquals("1 on YouTube Music", note(state, showSoulseek = false))
     }
 
@@ -78,15 +78,15 @@ class SearchStatusTest {
     fun `the peer count is not reported while the peer results are hidden`() {
         val state = SearchState(query = "kid a", hits = listOf(hit()), matched = 3, peers = 2)
 
-        assertNull(note(state, showSoulseek = false, showYoutube = false, catalogueShown = true))
+        assertNull(note(state, showSoulseek = false, showYoutube = false, albumsAndArtistsShown = true))
     }
 
     private fun note(
         state: SearchState,
         showSoulseek: Boolean = true,
         showYoutube: Boolean = true,
-        catalogueShown: Boolean = false,
-    ) = statusNote(state, showSoulseek, showYoutube, catalogueShown)
+        albumsAndArtistsShown: Boolean = false,
+    ) = statusNote(state, showSoulseek, showYoutube, albumsAndArtistsShown)
 
     private fun track(title: String = "Let It Happen") =
         YtmTrack(videoId = "v_$title", title = title, artist = "Tame Impala")
