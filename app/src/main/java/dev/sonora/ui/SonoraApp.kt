@@ -86,6 +86,9 @@ import dev.sonora.backend.BackendState
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.HazeState
+import androidx.compose.foundation.layout.widthIn
 import dev.sonora.spotify.SpotifyImportRunner
 import dev.sonora.backend.SonoraPlayer
 import kotlinx.coroutines.Dispatchers
@@ -162,6 +165,9 @@ private enum class MainTab(val label: String) {
      */
     Network("Network"),
 }
+
+/** The bar's tabs, in the order they are drawn. Built once because the list never changes. */
+private val tabs: List<BottomTab> = MainTab.entries.map { BottomTab(it.label, it.icon()) }
 
 private fun MainTab.icon(): ImageVector = when (this) {
     MainTab.Home -> Icons.Filled.Home
@@ -495,97 +501,109 @@ private fun MainTabs(state: BackendState) {
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // The screen headers are the top of the UI now that the app title bar is
-                    // gone, so the status bar has to be inset here instead.
-                    .statusBarsPadding(),
-            ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    when (tab) {
-                        MainTab.Home -> HomeScreen(
-                            onImportSpotify = { spotifyImport = true },
-                            onRunSearch = { term ->
-                                // A suggestion on Home is really a pre-filled search, so this is
-                                // the whole action: go to Search and run it.
-                                tab = MainTab.Search
-                                SonoraBackend.search(context, term)
-                            },
-                            onOpenPlaylist = { id ->
-                                // The same handoff in the other direction: the playlist is shown by
-                                // the Library, so go there and ask it for that one.
-                                openPlaylistId = id
-                                tab = MainTab.Library
-                            },
-                        )
-                        MainTab.Search -> SearchScreen()
-                        MainTab.Library -> LibraryScreen(
-                            onRunSearch = { term ->
-                                tab = MainTab.Search
-                                SonoraBackend.search(context, term)
-                            },
-                            openPlaylistId = openPlaylistId,
-                            onOpenPlaylist = { openPlaylistId = it },
-                            onClosePlaylist = { openPlaylistId = null },
-                            openArtistName = openArtistName,
-                            onCloseArtist = { openArtistName = null },
-                            openAlbumName = openAlbumName,
-                            onCloseAlbum = { openAlbumName = null },
-                        )
-                        MainTab.Settings -> SettingsScreen()
+    // One Haze state for the whole page. The bars and the top bar all sample the same source, which
+    // is what lets a cover scrolling past show through the mini player and the top bar in the same
+    // frame — two states would sample two different snapshots and the page would tear between them.
+    val hazeState = remember { HazeState() }
 
-                        // The connect screen, reachable at any time, and showing the session once
-                        // there is one.
-                        MainTab.Network -> ConnectScreen(state = state)
-                    }
-                }
+    Box(modifier = Modifier.fillMaxSize()) {
+        // The page is the blur source. Every frosted surface in the app samples this subtree, so
+        // anything drawn outside it is invisible to the glass.
+        Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+            when (tab) {
+                MainTab.Home -> HomeScreen(
+                        onImportSpotify = { spotifyImport = true },
+                        onRunSearch = { term ->
+                            // A suggestion on Home is really a pre-filled search, so this is
+                            // the whole action: go to Search and run it.
+                            tab = MainTab.Search
+                            SonoraBackend.search(context, term)
+                        },
+                        onOpenPlaylist = { id ->
+                            // The same handoff in the other direction: the playlist is shown by
+                            // the Library, so go there and ask it for that one.
+                            openPlaylistId = id
+                            tab = MainTab.Library
+                        },
+                    )
+                MainTab.Search -> SearchScreen()
 
-                NowPlayingBar(onOpen = { playerOpen = true })
+                MainTab.Library -> LibraryScreen(
+                        onRunSearch = { term ->
+                            tab = MainTab.Search
+                            SonoraBackend.search(context, term)
+                        },
+                        openPlaylistId = openPlaylistId,
+                        onOpenPlaylist = { openPlaylistId = it },
+                        onClosePlaylist = { openPlaylistId = null },
+                        openArtistName = openArtistName,
+                        onCloseArtist = { openArtistName = null },
+                        openAlbumName = openAlbumName,
+                        onCloseAlbum = { openAlbumName = null },
+                    )
+                MainTab.Settings -> SettingsScreen()
 
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    MainTab.entries.forEach { entry ->
-                        NavigationBarItem(
-                            selected = tab == entry,
-                            onClick = {
-                                // Tapping Search while already on it clears the search, which is
-                                // also what brings the recent queries back into view.
-                                if (tab == entry && entry == MainTab.Search) {
-                                    SonoraBackend.clearSearch()
-                                } else {
-                                    // Leaving the Library closes whatever it had open. That state
-                                    // used to live inside it and reset this way, and holding it up
-                                    // here should not change what the user sees.
-                                    if (entry != MainTab.Library) {
-                                        openPlaylistId = null
-                                        openArtistName = null
-                                        openAlbumName = null
-                                    }
-                                    tab = entry
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = entry.icon(),
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text(entry.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.accentText,
-                                selectedTextColor = MaterialTheme.colorScheme.accentText,
-                                indicatorColor = MaterialTheme.colorScheme.background,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
-                }
+                // The connect screen, reachable at any time, and showing the session once
+                // there is one.
+                MainTab.Network -> ConnectScreen(state = state)
             }
+        }
+
+        // The floor the bars stand on, drawn over the page and under everything else. Without it a
+        // track row scrolling past the tab bar is still fully opaque right up to the pill's edge,
+        // which is what makes a floating bar look pasted on rather than sitting in the page.
+        BottomFadeScrim(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            withMiniPlayer = playback.track != null,
+        )
+
+        // The bars, bottom-anchored in one column so they share an edge and a width cap. Two
+        // independently-sized bars would not line up on a wide screen.
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .widthIn(max = FLOATING_BAR_MAX_WIDTH)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val track = playback.track
+            if (track != null) {
+                MiniPlayer(
+                    track = track,
+                    isPlaying = playback.isPlaying,
+                    onPlayPause = { SonoraPlayer.togglePlayPause() },
+                    onNext = { SonoraPlayer.next() },
+                    onPrevious = { SonoraPlayer.previous() },
+                    onExpand = { playerOpen = true },
+                    hazeState = hazeState,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            FloatingTabBar(
+                tabs = remember { tabs },
+                selectedIndex = MainTab.entries.indexOf(tab),
+                onTabSelected = { index ->
+                    val entry = MainTab.entries[index]
+                    // Tapping Search while already on it clears the search, which is also what
+                    // brings the recent queries back into view.
+                    if (tab == entry && entry == MainTab.Search) {
+                        SonoraBackend.clearSearch()
+                    } else {
+                        // Leaving the Library closes whatever it had open. That state used to live
+                        // inside it and reset this way, and holding it up here should not change
+                        // what the user sees.
+                        if (entry != MainTab.Library) {
+                            openPlaylistId = null
+                            openArtistName = null
+                            openAlbumName = null
+                        }
+                        tab = entry
+                    }
+                },
+                hazeState = hazeState,
+            )
+        }
 
             AnimatedVisibility(
                 visible = playerOpen,
