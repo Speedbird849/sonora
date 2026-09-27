@@ -173,6 +173,47 @@ object SonoraPlayer {
     }
 
     /**
+     * Moves one track to a new place in the queue.
+     *
+     * Applied to the service rather than to a local list, for the same reason removal is: a panel
+     * that reorders itself and a player that does not means the next track after the one the
+     * listener just moved is the wrong one, and nothing on screen would say so.
+     *
+     * What is playing does not move. A reorder that carried the sounding track with it would change
+     * which index counts as "current" and rewind the position along with it — the track is still
+     * the same track, and it is still being listened to.
+     */
+    fun moveInQueue(from: Int, to: Int) {
+        val active = controller ?: return
+        val queue = _upNext.value.queue
+        if (from !in queue.indices || to !in queue.indices || from == to) return
+        if (from == _upNext.value.index) return
+
+        scope.launch {
+            val reordered = queue.toMutableList()
+            val moved = reordered.removeAt(from)
+            reordered.add(to.coerceIn(0, reordered.size), moved)
+
+            // The sounding track's index moves with whatever crossed it.
+            val current = _upNext.value.index
+            val index = when {
+                current == from -> to
+                from < current && to >= current -> current - 1
+                from > current && to <= current -> current + 1
+                else -> current
+            }
+
+            _upNext.value = UpNext(queue = reordered, index = index)
+
+            val items = reordered.mapNotNull { itemFor(it) }
+            val keep = active.currentPosition
+            val at = index.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+            active.setMediaItems(items, at, keep)
+            active.prepare()
+        }
+    }
+
+    /**
      * Takes one track out of the queue.
      *
      * Done on the service rather than in a local copy, because a queue that disagrees with the

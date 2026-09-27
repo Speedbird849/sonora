@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import dev.sonora.backend.AudioQuality
 import dev.sonora.backend.RepeatMode
 import dev.sonora.backend.SearchQueries
@@ -202,27 +203,23 @@ fun NowPlayingScreen(
             onDismiss = { connectPrompt = false },
         )
 
-        // The queue, over everything. Drawn after the background so it is not behind the sleeve,
-        // and before the content so the content is what it replaces.
         if (queueOpen) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.92f)),
+                    .background(Color.Black.copy(alpha = 0.94f)),
             ) {
                 QueuePanel(
                     upNext = upNext,
                     onPlayFrom = { index -> SonoraPlayer.play(context, upNext.queue, index) },
                     onRemove = { index -> SonoraPlayer.removeFromQueue(index) },
+                    onMove = { from, to -> SonoraPlayer.moveInQueue(from, to) },
                     onClose = { queueOpen = false },
                 )
             }
-        }
-
-        Column(
+        } else Column(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = if (queueOpen) 0f else 1f }
                 .statusBarsPadding()
                 .padding(start = 24.dp, top = 4.dp, end = 24.dp, bottom = 24.dp)
                 .draggable(

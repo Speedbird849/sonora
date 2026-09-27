@@ -148,22 +148,27 @@ private fun CategoryTile(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to tint.copy(alpha = 0.55f),
-                            1f to tint.copy(alpha = 0.85f),
+                            0f to tint.copy(alpha = 0.40f),
+                            0.55f to tint.copy(alpha = 0.62f),
+                            1f to tint.copy(alpha = 0.88f),
                         ),
                     ),
             )
         }
 
-        // And a scrim under the name, so white is white on any cover.
+        // And a scrim under the name. Weighted towards the bottom rather than even, because the
+        // name is at the bottom and it is the one thing on the tile that has to be readable: a pale
+        // photograph behind white text is unreadable at the top of the tile and fine at the bottom,
+        // so the scrim is not.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.05f),
-                        0.55f to Color.Black.copy(alpha = 0.35f),
-                        1f to Color.Black.copy(alpha = 0.70f),
+                        0f to Color.Black.copy(alpha = 0.10f),
+                        0.40f to Color.Black.copy(alpha = 0.32f),
+                        0.75f to Color.Black.copy(alpha = 0.62f),
+                        1f to Color.Black.copy(alpha = 0.88f),
                     ),
                 ),
         )

@@ -3,36 +3,48 @@ package dev.sonora.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import kotlin.math.roundToInt
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.UpNext
@@ -44,26 +56,34 @@ import dev.sonora.backend.UpNext
  * at *while* the record keeps playing, and a page that covers the player hides the position and the
  * controls that are still doing something. The track that is sounding stays at the top, marked,
  * and everything below it is one tap away.
+ *
+ * Reorderable by holding a row and sliding it. The handle is at the row's own end rather than over
+ * the whole row, so a hold that means "read this" is not a hold that means "move it" — but a hold
+ * anywhere on the row does move it, because that is what a hand expects and the alternative is a
+ * thirty-pixel target.
  */
 @Composable
 internal fun QueuePanel(
     upNext: UpNext,
     onPlayFrom: (Int) -> Unit,
     onRemove: (Int) -> Unit,
+    onMove: (from: Int, to: Int) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Inset for the status bar, because this panel replaces the player outright and the player's
-    // own inset went with it — a queue whose heading sits under the clock looks like a bug in the
-    // panel rather than like one in whatever hid the player.
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-    ) {
+    // Which of the *following* rows is being held, and how far it has been carried. Null until a
+    // hold starts, so a drag that has not begun costs nothing.
+    var held by remember { mutableStateOf<Int?>(null) }
+    var carried by remember { mutableFloatStateOf(0f) }
+    var rowHeight by remember { mutableFloatStateOf(0f) }
+
+    val listState = rememberLazyListState()
+
+    Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .statusBarsPadding()
                 .padding(start = 24.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -80,9 +100,11 @@ internal fun QueuePanel(
             )
         }
 
+        val following = upNext.following
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
         ) {
             val current = upNext.current
             if (current != null) {
@@ -98,16 +120,62 @@ internal fun QueuePanel(
                 }
             }
 
-            if (upNext.following.isNotEmpty()) {
+            if (following.isNotEmpty()) {
                 item(key = "next-heading") { QueueHeading("Next in queue") }
+            }
 
-                itemsIndexed(upNext.following, key = { _, t -> t.key }) { position, track ->
+            itemsIndexed(following, key = { _, t -> t.key }) { position, track ->
+                val absolute = upNext.index + 1 + position
+                val dragging = held == position
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset { IntOffset(0, if (dragging) carried.roundToInt() else 0) }
+                        .zIndex(if (dragging) 1f else 0f)
+                        .pointerInput(position) {
+                            var offsetY = 0f
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    held = position
+                                    carried = 0f
+                                    rowHeight = size.height.toFloat()
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    offsetY += amount.y
+                                    carried = offsetY
+                                },
+                                onDragEnd = {
+                                    val row = rowHeight.takeIf { it > 0f } ?: 1f
+                                    // Rounded rather than measured against the live list: a drag
+                                    // that crosses half a row is a deliberate move, and one that
+                                    // wobbles is not.
+                                    val steps = (offsetY / row).toInt()
+                                    if (steps != 0) {
+                                        onMove(absolute, (absolute + steps).coerceIn(0, following.size))
+                                    }
+                                    held = null
+                                    carried = 0f
+                                },
+                                onDragCancel = {
+                                    held = null
+                                    carried = 0f
+                                },
+                            )
+                        },
+                ) {
                     QueueRow(
                         track = track,
                         isCurrent = false,
                         isPlaying = false,
-                        onClick = { onPlayFrom(upNext.index + 1 + position) },
-                        onRemove = { onRemove(upNext.index + 1 + position) },
+                        onClick = { onPlayFrom(absolute) },
+                        onRemove = { onRemove(absolute) },
+                        onDragHandle = { delta ->
+                            held = position
+                            carried += delta
+                        },
+                        isHeld = dragging,
                     )
                 }
             }
@@ -142,11 +210,14 @@ private fun QueueRow(
     isPlaying: Boolean,
     onClick: () -> Unit,
     onRemove: (() -> Unit)?,
+    onDragHandle: ((Float) -> Unit)? = null,
+    isHeld: Boolean = false,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .background(if (isHeld) Color.White.copy(alpha = 0.10f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -198,6 +269,31 @@ private fun QueueRow(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(10.dp))
+        }
+
+        if (onDragHandle != null) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDragHandle(amount.y)
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.DragHandle,
+                    contentDescription = "Hold and slide to reorder",
+                    tint = Color.White.copy(alpha = 0.45f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
         }
 
         if (onRemove != null) {
