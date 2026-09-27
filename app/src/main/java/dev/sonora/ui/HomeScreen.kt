@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.BoxWithConstraints
 import dev.sonora.backend.DownloadState
 import dev.sonora.backend.LibraryGrouping
 import dev.sonora.backend.LibraryTrack
@@ -81,7 +82,14 @@ fun HomeScreen(
         SonoraBackend.refreshPlayHistory(context)
     }
 
-    val recentAlbums = remember(tracks) { LibraryGrouping.recentAlbums(tracks, limit = 12) }
+    // The first few lead the page as cards you can see, and the rest go in a shelf underneath.
+    // Splitting here rather than in the shelf keeps "which albums lead" a decision about the page
+    // rather than something each shelf re-decides for itself.
+    val recentAlbums = remember(tracks) { LibraryGrouping.recentAlbums(tracks, limit = HERO_COUNT) }
+    val moreAlbums = remember(tracks) {
+        LibraryGrouping.recentAlbums(tracks, limit = HERO_COUNT + SHELF_COUNT)
+            .drop(HERO_COUNT)
+    }
 
     // Resolved against the library rather than remembered as tracks: the filesystem is the library,
     // so a file that has since been deleted drops out and the rest are current.
@@ -107,9 +115,10 @@ fun HomeScreen(
     ) {
         item {
             Text(
-                text = "Home",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = PAGE_GUTTER, top = 8.dp),
+                text = "Listen now",
+                style = MaterialTheme.typography.displayLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
             )
         }
 
@@ -133,12 +142,24 @@ fun HomeScreen(
 
         if (recentAlbums.isNotEmpty()) {
             item {
-                Section(
+                HeroShelf(
                     title = "Recently added",
                     subtitle = "The newest music in your library",
-                    albums = recentAlbums,
+                    cards = recentAlbums.map { album ->
+                        HeroEntry(
+                            title = album.name,
+                            subtitle = album.artist,
+                            artwork = album.tracks.firstOrNull()?.let { rememberTrackArtwork(it) },
+                            tracks = album.tracks,
+                        )
+                    },
+                    onOpen = { entry -> SonoraPlayer.play(context, entry.tracks, 0) },
                 )
             }
+        }
+
+        if (moreAlbums.isNotEmpty()) {
+            item { Section(title = "Albums", subtitle = "Everything in your library", albums = moreAlbums) }
         }
 
         // Unconditional, because the row leads with the import tile — which is the only way a
@@ -164,27 +185,45 @@ fun HomeScreen(
 private fun RecentlyPlayedRow(tracks: List<LibraryTrack>) {
     val context = LocalContext.current
 
-    Column {
-        SectionHeader(title = "Recently played", subtitle = "Pick up where you left off")
+    Column(modifier = Modifier.padding(bottom = 26.dp)) {
+        ShelfHeader(title = "Recently played", subtitle = "Pick up where you left off")
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            itemsIndexed(tracks, key = { _, track -> track.key }) { index, track ->
-                MediaCard(
-                    artwork = rememberTrackArtwork(track),
-                    title = track.title,
-                    subtitle = listOfNotNull(track.artist, track.album).joinToString("  \u00b7  "),
-                    shape = RoundedCornerShape(8.dp),
-                    // The row becomes the queue, so next and previous carry on down it rather than
-                    // stopping at the one track that was tapped.
-                    onClick = { SonoraPlayer.play(context, tracks, index) },
-                )
+        // Rows rather than cards, paged sideways in columns. Recents is the one shelf where the
+        // question is "what was that one called" rather than "what should I play", and a list of
+        // titles answers it where a wall of covers does not. Four to a column so the next page is
+        // visible without paging.
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columnWidth = trackColumnWidth(maxWidth)
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                itemsIndexed(
+                    tracks.chunked(RECENT_TRACKS_PER_COLUMN),
+                    key = { _, page -> page.firstOrNull()?.key ?: "empty" },
+                ) { _, page ->
+                    Column(Modifier.width(columnWidth)) {
+                        page.forEach { track ->
+                            val index = tracks.indexOf(track)
+                            SongRow(
+                                track = track,
+                                // The whole recents list becomes the queue, so next and previous
+                                // carry on down it rather than stopping at the tapped track.
+                                onClick = { SonoraPlayer.play(context, tracks, index) },
+                                isCurrent = false,
+                                meta = listOfNotNull(track.artist).joinToString("  \u00b7  "),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
+
+/** How many track rows make a page of the recents shelf. */
+private const val RECENT_TRACKS_PER_COLUMN = 4
 
 @Composable
 private fun Section(
@@ -199,16 +238,21 @@ private fun Section(
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(SHELF_SPACING),
         ) {
             items(albums, key = { it.name + it.artist }) { album ->
-                val file = album.tracks.firstOrNull()?.file
+                // Taken from the first track: a grouping has no artwork of its own, and the first
+                // track is the one whose cover the release actually uses.
+                val first = album.tracks.firstOrNull()
+                val artwork = when {
+                    first?.file != null -> rememberArtwork(first.file)
+                    else -> first?.let { rememberTrackArtwork(it) }
+                }
 
-                MediaCard(
-                    artwork = if (file != null) rememberArtwork(file) else null,
+                ShelfCard(
+                    artwork = artwork,
                     title = album.name,
                     subtitle = album.artist,
-                    shape = RoundedCornerShape(8.dp),
                     onClick = { SonoraPlayer.play(context, album.tracks, 0) },
                 )
             }
@@ -239,12 +283,11 @@ private fun PlaylistsRow(
             // copied it is the thing they came to do — and it is the only way a playlist gets made
             // here from somewhere else.
             item(key = "import") {
-                MediaCard(
+                ShelfCard(
                     artwork = null,
                     icon = Icons.Filled.Download,
                     title = "Import from Spotify",
                     subtitle = "Paste a playlist link",
-                    shape = RoundedCornerShape(8.dp),
                     onClick = onImportSpotify,
                 )
             }
@@ -252,7 +295,7 @@ private fun PlaylistsRow(
             items(playlists, key = { it.id }) { playlist ->
                 val liked = playlist.id == Playlists.LIKED_ID
 
-                MediaCard(
+                ShelfCard(
                     artwork = null,
                     icon = if (liked) Icons.Filled.Favorite else Icons.AutoMirrored.Filled.QueueMusic,
                     title = playlist.name,
@@ -260,7 +303,6 @@ private fun PlaylistsRow(
                         val count = playlist.trackKeys.count { it in keys }
                         if (count == 1) "1 track" else "$count tracks"
                     },
-                    shape = if (liked) CircleShape else RoundedCornerShape(8.dp),
                     onClick = { onOpen(playlist.id) },
                 )
             }
@@ -278,12 +320,11 @@ private fun RecentSearchesRow(history: List<String>, onRunSearch: (String) -> Un
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(history, key = { it }) { term ->
-                MediaCard(
+                ShelfCard(
                     artwork = null,
                     icon = Icons.Filled.Search,
                     title = term,
                     subtitle = "Search again",
-                    shape = RoundedCornerShape(8.dp),
                     onClick = { onRunSearch(term) },
                 )
             }
@@ -389,3 +430,10 @@ private fun GettingStarted(onRunSearch: (String) -> Unit) {
         }
     }
 }
+
+/** How many albums lead the page as hero cards. */
+private const val HERO_COUNT = 4
+
+/** How many cards a square shelf holds before "show all" is worth offering. */
+private const val SHELF_COUNT = 10
+
