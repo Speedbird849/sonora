@@ -19,6 +19,7 @@ import dev.sonora.ytm.YtmSearch
 import dev.sonora.ytm.YtmStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,13 +68,13 @@ object SonoraPlayer {
     private val resolved = HashMap<String, YtmAudio>()
 
     /**
-     * IO, not the main thread.
+     * The main thread, and it has to be.
      *
-     * Almost everything here is a round trip — resolving a stream, asking the catalogue, moving
-     * the queue — and the main thread is where the player's own frames are drawn. A coroutine on
-     * `Dispatchers.Main.immediate` that suspends on a socket is a frame that waits on a socket.
+     * MediaController verifies the thread it was created on and refuses to be called from any
+     * other, so every queue edit — a reorder, a removal, a setMediaItems — has to happen here. The
+     * network is the part that moves off: [resolve] switches to IO for the fetch and comes back.
      */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
      * Called whenever a track begins, whoever started it.
@@ -576,7 +577,10 @@ object SonoraPlayer {
         val videoId = track.remote?.videoId ?: return null
         if (resolved.size >= MAX_RESOLVED) resolved.clear()
 
-        return runCatching { YtmStream.resolve(videoId) }
+        // Off the main thread, and back on before anything touches the controller. Minting a stream
+        // is two round trips to a service that decides whether to serve it at all, and a frame
+        // should not be waiting on either of them.
+        return runCatching { withContext(Dispatchers.IO) { YtmStream.resolve(videoId) } }
             // The type and the stack, not just the message: a resolution failure from a library
             // whose exceptions mostly carry no message at all is otherwise indistinguishable from a
             // network refusal, and those need completely different fixes.
