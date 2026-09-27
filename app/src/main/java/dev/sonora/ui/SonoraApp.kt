@@ -19,12 +19,16 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
@@ -58,7 +62,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -77,6 +80,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +92,7 @@ import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.HazeState
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import dev.sonora.spotify.SpotifyImportRunner
 import dev.sonora.backend.SonoraPlayer
@@ -321,7 +326,7 @@ private fun ConnectScreen(state: BackendState) {
     val context = LocalContext.current
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var remember by remember { mutableStateOf(false) }
+    var keepLogin by remember { mutableStateOf(false) }
 
     // Filled in before the fields are read, so a login that is remembered does not have to be typed
     // again after a failure — which is the case this screen is actually reached in.
@@ -331,112 +336,131 @@ private fun ConnectScreen(state: BackendState) {
 
         username = saved.username
         password = saved.password
-        remember = true
+        keepLogin = true
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(text = "Sonora", style = MaterialTheme.typography.headlineMedium)
+    // A page heading like every other tab's, so the wordmark up in the bar is not the only thing
+    // naming this one. Left-aligned with the rest rather than centred under it, because a heading
+    // that sits in the middle of a form looks like a label on the form.
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = "Network",
+            style = MaterialTheme.typography.displayLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+        )
 
-        when (state) {
-            BackendState.Idle -> {
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Soulseek username") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = PAGE_GUTTER)
+                .padding(bottom = listBottomPadding(withMiniPlayer = false)),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            when (state) {
+                BackendState.Idle -> {
+                    Text(
+                        text = "Sign in to find lossless files on the network. Searching and " +
+                            "streaming work without it.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
 
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                    PillTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        placeholder = "Soulseek username",
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = remember, onCheckedChange = { remember = it })
+                    PillTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        placeholder = "Password",
+                        isPassword = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Go,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onGo = {
+                                if (username.isNotBlank() && password.isNotBlank()) {
+                                    SonoraBackend.connect(
+                                        context,
+                                        username.trim(),
+                                        password,
+                                        keepLogin,
+                                    )
+                                }
+                            },
+                        ),
+                    )
 
-                    Column {
-                        Text(text = "Save login", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            text = "Encrypted on this device",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // A switch rather than a checkbox: this is a setting being left on, not a
+                    // box being ticked, and a bare square in the middle of a dark page reads as
+                    // an unstyled control.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .rowClickable(onClick = { keepLogin = !keepLogin })
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Save login",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = "Encrypted on this device",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        SettingSwitch(checked = keepLogin) { keepLogin = it }
                     }
+
+                    Spacer(Modifier.height(4.dp))
+
+                    Button(
+                        onClick = {
+                            SonoraBackend.connect(context, username.trim(), password, keepLogin)
+                        },
+                        enabled = username.isNotBlank() && password.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(13.dp),
+                    ) {
+                        Text("Connect", style = MaterialTheme.typography.titleMedium)
+                    }
+
+                    Text(
+                        text = "An unknown username is registered on first sign-in.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
 
-                Button(
-                    onClick = {
-                        SonoraBackend.connect(context, username.trim(), password, remember)
-                    },
-                    enabled = username.isNotBlank() && password.isNotBlank(),
-                ) {
-                    Text("Connect")
-                }
+                BackendState.Connecting -> MessageState(message = "Signing in to Soulseek\u2026")
 
-                Text(
-                    text = "An unknown username is registered on first sign-in.",
-                    style = MaterialTheme.typography.bodySmall,
+                is BackendState.Failed -> MessageState(
+                    message = "Could not connect: ${state.reason}",
+                    actionLabel = "Back",
+                    onAction = { SonoraBackend.disconnect(context) },
                 )
-            }
 
-            BackendState.Connecting -> {
-                Text("Connecting\u2026", style = MaterialTheme.typography.bodyMedium)
-                CircularProgressIndicator()
-            }
-
-            is BackendState.Failed -> {
-                Text(
-                    text = "Could not connect",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.error,
+                // Connected: the network is up, so this tab is a status page rather than a form. It is
+                // deliberately not blank — a tab that goes empty the moment it stops being useful is
+                // indistinguishable from a broken one.
+                is BackendState.Connected -> MessageState(
+                    message = state.greeting.ifBlank { "Signed in to Soulseek" } +
+                        ". Downloads come from here; searching and streaming do not.",
+                    actionLabel = "Disconnect",
+                    onAction = { SonoraBackend.disconnect(context) },
                 )
-                Text(state.reason, style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = { SonoraBackend.disconnect(context) }) {
-                    Text("Back")
-                }
-            }
-
-            // Connected: the network is up, so this tab is a status page rather than a form. It is
-            // deliberately not blank — a tab that goes empty the moment it stops being useful is
-            // indistinguishable from a broken one.
-            is BackendState.Connected -> Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("Connected", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    text = state.greeting.ifBlank { "Signed in to Soulseek" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    // Downloads come from here. Search and playback do not, which is why this is
-                    // a tab rather than the way in.
-                    text = "Searching and streaming work without this. " +
-                        "Connecting is for finding lossless files on the network.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = { SonoraBackend.disconnect(context) }) { Text("Disconnect") }
             }
         }
     }
