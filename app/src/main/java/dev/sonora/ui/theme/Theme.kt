@@ -47,6 +47,7 @@ fun SonoraTheme(
 ) {
     MaterialTheme(
         colorScheme = DarkScheme,
+        typography = SonoraTypography,
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),

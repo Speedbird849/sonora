@@ -33,11 +33,10 @@ import androidx.compose.ui.unit.dp
  * Grey stand-ins for content that is still on the wire, laid out to the same metrics as the real
  * rows so nothing jumps when the data lands.
  *
- * Ported from BitChord's `ui/components/Skeletons.kt`, keeping the parts that are about the shimmer
- * itself and one row shape, and dropping the shelves and hero carousels — those were built around
- * that app's own layout constants, and Sonora's Home is not that layout. What is left is the part
- * worth having: a search against a remote catalogue and a library that has to scan a folder both
- * spend long enough on the wire that a blank screen reads as broken.
+ * A search against a remote catalogue and a library that has to scan a folder both spend long
+ * enough on the wire that a blank screen reads as broken, which is the whole reason these exist.
+ * The shelf and carousel placeholders that would go with the rest of the layout are not here yet:
+ * the rows are what a search and a library actually show while they are waiting.
  */
 private const val SHIMMER_PERIOD_MS = 1400
 

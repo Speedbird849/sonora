@@ -13,12 +13,11 @@ import dev.chrisbanes.haze.hazeEffect
 /**
  * The measurements every page, bar and card is built from.
  *
- * Ported from BitChord, where these are the reason a track row, a card and a heading all line up
- * with the edge of the bars stacked below them: they share one inset rather than each having their
- * own. The values are kept rather than restyled, because they are a set that agrees with itself —
- * the pill bars are inset by [PAGE_GUTTER] and the artwork in a row clears the row's own padding by
- * a matching amount, and moving one without the other is what produces a bar that looks a pixel or
- * two narrow.
+ * They live here rather than in whichever screen needed them first because they only work as a set:
+ * a track row, a card and a heading all line up with the edge of the bars stacked below them by
+ * sharing one inset, and the pill bars are inset by the same [PAGE_GUTTER] that the artwork in a row
+ * clears its own padding by. Moving one without the others is what produces a bar that looks a pixel
+ * or two narrow.
  */
 
 /**
