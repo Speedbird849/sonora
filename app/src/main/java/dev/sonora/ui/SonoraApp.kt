@@ -505,16 +505,6 @@ private fun MainTabs(state: BackendState) {
     // What the bar says and whether it offers a way back. Both come from what is open rather than
     // from the tab: a playlist opened from Home is not a tab, and its own name is the only title
     // that means anything while it is being read.
-    val pushedTitle = when {
-        openPlaylistId != null ->
-            playlists.firstOrNull { it.id == openPlaylistId }?.name
-
-        openArtistName != null -> openArtistName
-        openAlbumName != null -> openAlbumName
-        else -> null
-    }
-
-    val chromeTitle = pushedTitle ?: tab.label
     val chromeBack: (() -> Unit)? = when {
         openPlaylistId != null -> {
             { openPlaylistId = null }
@@ -595,18 +585,10 @@ private fun MainTabs(state: BackendState) {
         FrostedTopBar(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
-            // Names whatever is open, so the bar is a bar rather than a strip of glass. A page
-            // heading that scrolls away is the right home for a title; this is what says where you
-            // are when the heading has gone, which is most of the time on a scrolled page.
-            leading = {
-                Text(
-                    text = chromeTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
+            // A mark, not a title. Every page below has a large heading that says what it is and
+            // scrolls away with the page; a second name up here would be a smaller copy of it that
+            // does not move, so the two disagree the moment the heading leaves.
+            leading = { SonoraWordmark() },
             onBack = chromeBack,
         )
 

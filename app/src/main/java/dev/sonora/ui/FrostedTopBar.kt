@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
@@ -69,7 +73,7 @@ internal fun FrostedTopBar(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
-    leading: @Composable (RowScope.() -> Unit)? = null,
+    leading: @Composable (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val dividerColor by animateColorAsState(
@@ -79,31 +83,47 @@ internal fun FrostedTopBar(
     )
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .height(TopBarContentHeight)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .height(TopBarContentHeight),
         ) {
+            // A back arrow in the same place a wordmark would be, and nothing else. The page's own
+            // large heading names it, so a title here would be the second one — and the two do not
+            // agree, because the heading scrolls away and this does not.
             if (onBack != null) {
-                CircleGlyph(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                IconButton(
                     onClick = onBack,
-                    size = 44.dp,
-                    glyphSize = 22.dp,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.size(4.dp))
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    leading?.invoke()
+                }
             }
 
-            if (leading != null) {
-                Box(Modifier.weight(1f)) { Row(verticalAlignment = Alignment.CenterVertically) { leading() } }
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                actions()
             }
-
-            actions()
         }
 
         HorizontalDivider(thickness = 0.5.dp, color = dividerColor)
@@ -189,3 +209,32 @@ internal fun GlassPill(
 @Composable
 internal fun FlatGlass(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.surface) =
     Box(modifier = modifier.background(color))
+
+/**
+ * The app's mark: a note and the name, at wordmark height.
+ *
+ * 18dp tall and sitting on the baseline of the bar rather than filling it. A mark is meant to be
+ * read at a glance from arm's length while a thumb is doing something else, which is the opposite
+ * of a title — a title has to be legible, a mark only has to be recognisable, and at 18dp in a
+ * lighter weight it stops competing with the page underneath for attention.
+ */
+@Composable
+internal fun SonoraWordmark(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.height(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.GraphicEq,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Sonora",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
