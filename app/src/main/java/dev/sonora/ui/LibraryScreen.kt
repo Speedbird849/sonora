@@ -57,6 +57,7 @@ import dev.sonora.backend.MusicDirectory
 import dev.sonora.backend.PlaybackState
 import dev.sonora.backend.Playlist
 import dev.sonora.backend.Playlists
+import dev.sonora.backend.SearchQueries
 import dev.sonora.backend.SonoraBackend
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.ui.theme.accentText
@@ -238,6 +239,8 @@ fun LibraryScreen(
                     onToggleLike = { SonoraBackend.toggleLiked(context, it) },
                     onAddToPlaylist = { addTarget = it },
                     onDelete = { deleteTarget = it },
+                    onFindLossless = { onRunSearch(it) },
+                    onForget = { SonoraBackend.unsave(context, it) },
                 )
 
                 LibrarySection.Albums -> AlbumsSection(
@@ -344,6 +347,9 @@ private fun TracksSection(
     onToggleLike: (LibraryTrack) -> Unit,
     onAddToPlaylist: (LibraryTrack) -> Unit,
     onDelete: (LibraryTrack) -> Unit,
+    /** Takes a query, not a track: the caller turns a track into the search that would find it. */
+    onFindLossless: (String) -> Unit,
+    onForget: (LibraryTrack) -> Unit,
 ) {
     if (tracks.isEmpty()) {
         EmptyState(
@@ -377,6 +383,22 @@ private fun TracksSection(
                     onToggleLike = { onToggleLike(track) },
                     onAddToPlaylist = { onAddToPlaylist(track) },
                     onDelete = { onDelete(track) },
+                    // Only offered to a track that is not on the device: asking the network for a
+                    // copy of a file already sitting on the phone is not a thing anyone means.
+                    onSearchNetwork = if (track.file != null) {
+                        null
+                    } else {
+                        {
+                            onFindLossless(
+                                SearchQueries.forTrack(track.title, track.artist.orEmpty()),
+                            )
+                        }
+                    },
+                    onRemoveFromLibrary = if (track.remote != null) {
+                        { onForget(track) }
+                    } else {
+                        null
+                    },
                 )
             }
         }
@@ -578,11 +600,19 @@ private fun TrackRow(
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onDelete: () -> Unit,
+    /** Null when there is nothing to offer — which is every track that is already on the device. */
+    onSearchNetwork: (() -> Unit)? = null,
+    onRemoveFromLibrary: (() -> Unit)? = null,
 ) {
     TrackListRow(
         track = track,
-        meta = listOfNotNull(track.artist, track.album, formatBytes(track.size))
-            .joinToString("  \u00b7  "),
+        // A streaming track has no bytes to count, and printing its zero would read as an empty
+        // file rather than as the absence of one.
+        meta = listOfNotNull(
+            track.artist,
+            track.album,
+            track.file?.let { formatBytes(track.size) },
+        ).joinToString("  \u00b7  "),
         isPlaying = isPlaying,
         onClick = onPlay,
         trailing = {
@@ -622,6 +652,27 @@ private fun TrackRow(
                             onAddToPlaylist()
                         },
                     )
+                    // The two halves of a library track that has not been downloaded. Streaming
+                    // is the row's own tap, so what is offered here is the half that is not free:
+                    // going to the peer network to look for a lossless copy of the same recording.
+                    if (onSearchNetwork != null) {
+                        DropdownMenuItem(
+                            text = { Text("Get a lossless copy") },
+                            onClick = {
+                                menuOpen = false
+                                onSearchNetwork()
+                            },
+                        )
+                    }
+                    if (track.remote != null && onRemoveFromLibrary != null) {
+                        DropdownMenuItem(
+                            text = { Text("Remove from library") },
+                            onClick = {
+                                menuOpen = false
+                                onRemoveFromLibrary()
+                            },
+                        )
+                    }
                     if (canDelete) {
                         DropdownMenuItem(
                             text = { Text("Delete download") },
