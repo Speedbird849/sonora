@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import dev.sonora.ytm.YtmEntity
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,29 +41,35 @@ import androidx.compose.ui.unit.dp
 import dev.sonora.backend.LibraryGrouping
 import dev.sonora.backend.SearchQueries
 import dev.sonora.backend.SonoraBackend
-import dev.sonora.metadata.ReleaseGroup
 
-/** One artist's tracks, reached from the Artists list. */
+/**
+ * One artist: their songs, and their albums.
+ *
+ * Reached from the Artists list, from a search result, and from the artist line on the player — all
+ * three, which is why the page is the same whatever opened it. The tracks are whatever the page has:
+ * the ones on the device for a local artist, the ones YouTube Music listed for one that was opened
+ * from a search or the player, and both for an artist who is half of each.
+ *
+ * The albums come from YouTube Music rather than from a release database, because the tracks on
+ * this page come from YouTube Music, and a shelf of albums whose titles do not match the songs
+ * above it reads as two pages stapled together.
+ */
 @Composable
 fun ArtistDetailScreen(
     artist: LibraryGrouping.Artist,
-    missing: List<ReleaseGroup>?,
+    /** The artist's own albums and singles, once the page has answered. Empty until it has. */
+    remoteAlbums: List<YtmEntity> = emptyList(),
+    remoteSingles: List<YtmEntity> = emptyList(),
+    /** The artist's own picture, which is theirs rather than any one record's. */
+    artworkUrl: String? = null,
     onBack: () -> Unit,
     onPlayFrom: (Int) -> Unit,
     onFindMore: (String) -> Unit,
 ) {
-    val context = LocalContext.current
-    val albumCount = LibraryGrouping.albums(artist.tracks).size
-
-    // Looked up once per artist. Every answer is cached, so this costs two requests the first
-    // time and nothing afterwards.
-    LaunchedEffect(artist.name) {
-        SonoraBackend.loadMissingAlbums(
-            context = context,
-            artist = artist.name,
-            owned = LibraryGrouping.albums(artist.tracks).map { it.name },
-        )
-    }
+    // Counted over the whole page rather than over the tracks: an artist's five top songs span four
+    // albums, and "4 albums" beside a shelf of seven is a contradiction the listener can see.
+    val releaseCount = remoteAlbums.size + remoteSingles.size
+    val albumCount = if (releaseCount > 0) releaseCount else LibraryGrouping.albums(artist.tracks).size
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -157,40 +165,41 @@ fun ArtistDetailScreen(
             }
         }
 
-        // The catalogue row is a lazy item so it scrolls with the tracks — but the item itself is
-        // registered from the start, even when there is nothing to show. Adding a new first item to
-        // a list that has already been laid out makes the list keep the item that was on top in
-        // place, which pushes the new one above the viewport: the row was built, and invisible.
-        // An item that is always present just grows when the answer arrives.
+        // The albums, as a lazy item so they scroll with the tracks — but registered from the
+        // start, even when there is nothing to show. Adding a new first item to a list that has
+        // already been laid out makes the list keep the item that was on top in place, which pushes
+        // the new one above the viewport: the shelf was built, and invisible.
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            item(key = "catalogue") {
-                if (!missing.isNullOrEmpty()) {
+            item(key = "albums") {
+                if (remoteAlbums.isNotEmpty()) {
                     Column(modifier = Modifier.padding(bottom = 8.dp)) {
                         SectionHeader(
-                            title = "Albums you don't have",
-                            subtitle = "From MusicBrainz; tap to look for it",
+                            title = "Albums",
+                            subtitle = "From YouTube Music; tap to open",
                         )
 
                         LazyRow(
-                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(missing, key = { it.id.ifEmpty { it.title } }) { release ->
-                                MediaCard(
-                                    artwork = rememberCoverArt(release.id),
-                                    title = release.title,
-                                    subtitle = release.year ?: "Album",
-                                    shape = RoundedCornerShape(8.dp),
-                                    // A catalogue entry is not playable — nothing here has been
-                                    // downloaded — so tapping it searches instead.
+                            items(remoteAlbums, key = { "album:" + it.browseId }) { album ->
+                                EntityCard(
+                                    entity = album,
                                     onClick = {
-                                        onFindMore(
-                                            SearchQueries.forAlbum(release.title, artist.name),
-                                        )
+                                        onFindMore(SearchQueries.forAlbum(album.title, artist.name))
+                                    },
+                                )
+                            }
+
+                            items(remoteSingles, key = { "single:" + it.browseId }) { single ->
+                                EntityCard(
+                                    entity = single,
+                                    onClick = {
+                                        onFindMore(SearchQueries.forAlbum(single.title, artist.name))
                                     },
                                 )
                             }

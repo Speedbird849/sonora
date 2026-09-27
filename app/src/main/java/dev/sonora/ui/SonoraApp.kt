@@ -90,6 +90,8 @@ import dev.sonora.backend.BackendState
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.Playlists
 import dev.sonora.backend.SonoraBackend
+import dev.sonora.backend.PageRequest
+import dev.sonora.backend.PageKind
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.HazeState
 import androidx.compose.foundation.layout.width
@@ -502,6 +504,10 @@ private fun MainTabs(state: BackendState) {
         var openPlaylistId by remember { mutableStateOf<String?>(null) }
         var openArtistName by remember { mutableStateOf<String?>(null) }
         var openAlbumName by remember { mutableStateOf<String?>(null) }
+        // A page opened from somewhere that has YouTube Music's id for it — a search result, or the
+        // artist line on the player. Held apart from the two names above because a name alone
+        // cannot fetch an artist's songs, and following one is for the songs.
+        var openPage by remember { mutableStateOf<PageRequest?>(null) }
         val playback by SonoraPlayer.state.collectAsState()
         val playlists by SonoraBackend.playlists.collectAsState()
         val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
@@ -579,7 +585,24 @@ private fun MainTabs(state: BackendState) {
                             tab = MainTab.Library
                         },
                     )
-                MainTab.Search -> SearchScreen()
+                MainTab.Search -> SearchScreen(
+                    onOpenAlbum = { entity ->
+                        openPage = PageRequest(
+                            name = entity.title,
+                            browseId = entity.browseId,
+                            kind = PageKind.ALBUM,
+                        )
+                        tab = MainTab.Library
+                    },
+                    onOpenArtist = { entity ->
+                        openPage = PageRequest(
+                            name = entity.title,
+                            browseId = entity.browseId,
+                            kind = PageKind.ARTIST,
+                        )
+                        tab = MainTab.Library
+                    },
+                )
 
                 MainTab.Library -> LibraryScreen(
                         onRunSearch = { term ->
@@ -593,6 +616,8 @@ private fun MainTabs(state: BackendState) {
                         onCloseArtist = { openArtistName = null },
                         openAlbumName = openAlbumName,
                         onCloseAlbum = { openAlbumName = null },
+                        openPage = openPage,
+                        onClosePage = { openPage = null },
                     )
                 MainTab.Settings -> SettingsScreen()
 
@@ -709,6 +734,16 @@ private fun MainTabs(state: BackendState) {
                         openArtistName = artistName
                         openAlbumName = null
                         openPlaylistId = null
+                        // The track the link came from knows the artist on YouTube Music, so the
+                        // page it opens can show that artist's songs rather than only whatever
+                        // happens to be on this phone.
+                        openPage = playback.track?.remote?.let { remote ->
+                            PageRequest(
+                                name = artistName,
+                                browseId = remote.artistId,
+                                kind = PageKind.ARTIST,
+                            )
+                        }
                         tab = MainTab.Library
                         playerOpen = false
                     },
@@ -716,6 +751,13 @@ private fun MainTabs(state: BackendState) {
                         openAlbumName = albumName
                         openArtistName = null
                         openPlaylistId = null
+                        openPage = playback.track?.remote?.let { remote ->
+                            PageRequest(
+                                name = albumName,
+                                browseId = remote.albumId,
+                                kind = PageKind.ALBUM,
+                            )
+                        }
                         tab = MainTab.Library
                         playerOpen = false
                     },

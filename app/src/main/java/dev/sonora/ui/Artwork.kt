@@ -93,6 +93,28 @@ fun rememberTrackArtwork(track: LibraryTrack, px: Int = dev.sonora.ui.ROW_ART_PX
 }
 
 /**
+ * A remote image as a bitmap, for a card that has only a URL and no track behind it — an album or
+ * an artist from a search, which is a page rather than a row and has no [LibraryTrack] of its own.
+ *
+ * Same cache and same size-rewriting as [rememberTrackArtwork], because it is the same pictures: a
+ * second path onto them would decode every cover on the page twice.
+ */
+@Composable
+fun rememberArtworkAt(url: String?, px: Int): ImageBitmap? {
+    val key = url?.let { artKey(it, px) }
+    var artwork by remember(key) { mutableStateOf(key?.let { remoteArtworkCache[it] }) }
+
+    LaunchedEffect(key) {
+        if (key == null || remoteArtworkCache.containsKey(key)) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) { fetchRemoteArtwork(url!!, px) }
+        remoteArtworkCache[key] = loaded
+        artwork = loaded
+    }
+
+    return artwork
+}
+
+/**
  * A remote image for a row that has only a URL — a search result, which is not in the library yet
  * and so has no [rememberTrackArtwork] to go through.
  */
@@ -170,29 +192,6 @@ private fun atSize(url: String, px: Int): String {
     return if (sized == url && !url.contains("=w")) url else sized
 }
 
-/**
- * Cover art for a catalogue release, fetched once and kept in memory.
- *
- * Separate from [rememberArtwork] because there is no file to read: this is a release MusicBrainz
- * knows about and nothing has been downloaded. Nothing is drawn until it arrives, so a card without
- * a cover shows the placeholder rather than flashing one and replacing it.
- */
-@Composable
-internal fun rememberCoverArt(releaseGroupId: String): ImageBitmap? {
-    val context = LocalContext.current
-    var art by remember(releaseGroupId) { mutableStateOf(coverArtCache[releaseGroupId]) }
-
-    LaunchedEffect(releaseGroupId) {
-        if (coverArtCache.containsKey(releaseGroupId)) return@LaunchedEffect
-        val loaded = withContext(Dispatchers.IO) {
-            SonoraBackend.coverArt(context, releaseGroupId)
-        }
-        coverArtCache[releaseGroupId] = loaded
-        art = loaded
-    }
-
-    return art
-}
 
 private fun decodeArtwork(file: File): ImageBitmap? = runCatching {
     val retriever = MediaMetadataRetriever()

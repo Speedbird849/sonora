@@ -67,6 +67,7 @@ import dev.sonora.backend.SearchHit
 import dev.sonora.backend.SearchFolders
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.SearchQueries
+import dev.sonora.ytm.YtmEntity
 import dev.sonora.ytm.YtmTrack
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.SearchSource
@@ -78,14 +79,24 @@ import dev.sonora.ui.theme.accentText
 import dev.sonora.ui.theme.onSurfaceFaint
 
 @Composable
-fun SearchScreen() {
+fun SearchScreen(
+    /**
+     * Opens an album or an artist found here.
+     *
+     * Handed up rather than opened here because the detail screens belong to the Library, which is
+     * where the rest of the app reaches them from — a page that could be entered two ways and drew
+     * two different screens would be two screens to keep in step.
+     */
+    onOpenAlbum: (YtmEntity) -> Unit = {},
+    onOpenArtist: (YtmEntity) -> Unit = {},
+) {
     val context = LocalContext.current
     val searchState by SonoraBackend.search.collectAsState()
     val download by SonoraBackend.download.collectAsState()
     val playing = SonoraPlayer.state.collectAsState().value.track != null
     val settings by SonoraBackend.settings.collectAsState()
     val history by SonoraBackend.searchHistory.collectAsState()
-    val catalogue by SonoraBackend.catalogue.collectAsState()
+    val entities = searchState.entities
     val sources by SonoraBackend.searchSources.collectAsState()
 
     // Keyed on the committed query so clearing the search clears the box with it, rather than
@@ -109,11 +120,10 @@ fun SearchScreen() {
     // question. Read here rather than remembered so it survives leaving the tab.
     val recentTracks by SonoraBackend.recentTracks.collectAsState()
 
-    // Either source can be turned off. The search itself still asks both: the catalogue answer is
-    // cached, and switching back should not mean waiting for it again.
+    // Either source can be turned off. The search itself still asks both: each source's answer is
+    // held, and switching back should not mean waiting for it again.
     val showSoulseek = SearchSource.SOULSEEK in sources
     val showYoutube = SearchSource.YOUTUBE_MUSIC in sources
-    val catalogueShown = SearchSource.CATALOGUE in sources && catalogue.isNotEmpty()
 
     // The top result's second button, and the flow it opens. Held here rather than inside the
     // card: a sheet's host has to outlive the item that summoned it, or it is dismissed the moment
@@ -206,7 +216,7 @@ fun SearchScreen() {
             }
         }
 
-        if (catalogue.isNotEmpty() || searchState.hits.isNotEmpty() ||
+        if (entities.albums.isNotEmpty() || entities.artists.isNotEmpty() || searchState.hits.isNotEmpty() ||
             searchState.youtube.isNotEmpty() || searchState.searching || searchState.youtubeLoading) {
             ChoicePillRow {
                 SearchSource.entries.forEach { source ->
@@ -225,7 +235,7 @@ fun SearchScreen() {
             onCancelRemaining = { SonoraBackend.cancelPendingDownloads() },
         )
 
-        statusNote(searchState, showSoulseek, showYoutube, catalogueShown)?.let { Note(it) }
+        statusNote(searchState, showSoulseek, showYoutube, !entities.isEmpty)?.let { Note(it) }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -305,40 +315,32 @@ fun SearchScreen() {
                 // Registered even while empty. A row added to the top of a list that has already
                 // been laid out makes the list keep what was on top in place, which pushes the new
                 // row above the viewport — and this row always arrives after the search has begun.
-                item(key = "catalogue") {
-                    if (catalogueShown) {
+                // Albums and artists, from the same catalogue the songs came from. A shelf
+                // because they are pages rather than rows: tapping one opens it, and a list of
+                // twenty of them would bury the songs above it.
+                item(key = "entities") {
+                    if (showYoutube && (entities.albums.isNotEmpty() || entities.artists.isNotEmpty())) {
                         Column(modifier = Modifier.padding(bottom = 8.dp)) {
                             SectionHeader(
-                                title = "In the catalogue",
-                                subtitle = "From MusicBrainz; tap to look for it",
+                                title = "Albums and artists",
+                                subtitle = "Straight from YouTube Music; tap to open",
                             )
 
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                items(catalogue, key = { it.id }) { album ->
-                                    MediaCard(
-                                        artwork = rememberCoverArt(album.id),
-                                        title = album.title,
-                                        // The artist is not decoration: one album title belongs to
-                                        // several different artists, and only this says which one
-                                        // this is.
-                                        subtitle = listOfNotNull(
-                                            album.artistName.ifEmpty { null },
-                                            album.year,
-                                        ).joinToString("  \u00b7  "),
-                                        shape = RoundedCornerShape(8.dp),
-                                        // Nothing here has been downloaded, so there is nothing to
-                                        // play; tapping looks for it on the network instead.
-                                        onClick = {
-                                            runSearch(
-                                                SearchQueries.forAlbum(
-                                                    album.title,
-                                                    album.artistName,
-                                                ),
-                                            )
-                                        },
+                                items(entities.albums, key = { "album:" + it.browseId }) { entity ->
+                                    EntityCard(
+                                        entity = entity,
+                                        onClick = { onOpenAlbum(entity) },
+                                    )
+                                }
+
+                                items(entities.artists, key = { "artist:" + it.browseId }) { entity ->
+                                    EntityCard(
+                                        entity = entity,
+                                        onClick = { onOpenArtist(entity) },
                                     )
                                 }
                             }
@@ -485,17 +487,17 @@ fun SearchScreen() {
  * The line under the controls, or null when there is nothing worth saying.
  *
  * It only ever describes the peer results, so it stays quiet while those are hidden. "No results"
- * especially has to mean no results from anywhere: said above a row of catalogue matches it would
+ * especially has to mean no results from anywhere: said above a row of albums or artists it would
  * read as a flat contradiction.
  */
 internal fun statusNote(
     state: SearchState,
     showSoulseek: Boolean,
     showYoutube: Boolean,
-    catalogueShown: Boolean,
+    albumsAndArtistsShown: Boolean,
 ): String? {
     val youtubeCount = state.youtube.size
-    val anyResults = state.hits.isNotEmpty() || youtubeCount > 0 || catalogueShown
+    val anyResults = state.hits.isNotEmpty() || youtubeCount > 0 || albumsAndArtistsShown
     val stillLooking = state.searching || state.youtubeLoading
     val peerLine = "${state.matched} file(s) from ${state.peers} peer(s)"
     val youtubeLine = "$youtubeCount on YouTube Music"
@@ -510,8 +512,8 @@ internal fun statusNote(
 
         !anyResults -> "No results for \u201c${state.query}\u201d."
 
-        // Catalogue rows are showing but neither playable source answered, so there is nothing to
-        // count. Saying "0 on YouTube Music" over them would read as a result, not an absence.
+        // Albums or artists are showing but neither playable source answered, so there is nothing
+        // to count. Saying "0 on YouTube Music" over them would read as a result, not an absence.
         state.hits.isEmpty() && youtubeCount == 0 -> null
 
         showSoulseek && state.hits.isNotEmpty() && showYoutube -> "$youtubeLine \u00b7 $peerLine"

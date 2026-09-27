@@ -21,6 +21,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -215,6 +219,10 @@ internal fun TrackActionsSheet(
     onDelete: () -> Unit,
     onForget: () -> Unit,
     onFindLossless: (() -> Unit)?,
+    onPlayNext: (() -> Unit)? = null,
+    onAddToQueue: (() -> Unit)? = null,
+    onOpenAlbum: (() -> Unit)? = null,
+    onOpenArtist: (() -> Unit)? = null,
 ) {
     SonoraSheet(onDismiss = onDismiss) {
         Column(
@@ -247,6 +255,34 @@ internal fun TrackActionsSheet(
                     icon = Icons.Filled.CloudDownload,
                     label = "Get a lossless copy",
                     onClick = find,
+                )
+            }
+            onPlayNext?.let { next ->
+                ActionRow(
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    label = "Play next",
+                    onClick = next,
+                )
+            }
+            onAddToQueue?.let { enqueue ->
+                ActionRow(
+                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    label = "Add to queue",
+                    onClick = enqueue,
+                )
+            }
+            onOpenAlbum?.let { open ->
+                ActionRow(
+                    icon = Icons.Filled.Album,
+                    label = "Open album",
+                    onClick = open,
+                )
+            }
+            onOpenArtist?.let { open ->
+                ActionRow(
+                    icon = Icons.Filled.Person,
+                    label = "Open artist",
+                    onClick = open,
                 )
             }
 

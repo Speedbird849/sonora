@@ -57,6 +57,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import dev.sonora.backend.LibraryGrouping
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.MusicDirectory
+import dev.sonora.backend.PageKind
+import dev.sonora.backend.PageRequest
 import dev.sonora.backend.PlaybackState
 import dev.sonora.backend.Playlist
 import dev.sonora.backend.Playlists
@@ -88,6 +90,13 @@ fun LibraryScreen(
     onCloseArtist: () -> Unit = {},
     openAlbumName: String? = null,
     onCloseAlbum: () -> Unit = {},
+    /**
+     * A page opened from elsewhere — a search result, or the artist line on the player — which
+     * carries the browse id as well as the name. This is what makes such a page show the artist's
+     * own songs rather than only the ones already on the phone.
+     */
+    openPage: PageRequest? = null,
+    onClosePage: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val tracks by SonoraBackend.library.collectAsState()
@@ -97,6 +106,21 @@ fun LibraryScreen(
     var creating by remember { mutableStateOf(false) }
     var openAlbum by remember { mutableStateOf<LibraryGrouping.Album?>(null) }
     var openArtist by remember { mutableStateOf<LibraryGrouping.Artist?>(null) }
+    // Set from a row's own menu, so the name travels the same way it does when the player hands one
+    // over. Held here rather than only as a parameter because a sheet is a child of this screen and
+    // has no way to reach the caller's state.
+    var albumName by remember { mutableStateOf<String?>(null) }
+    var artistName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(openAlbumName) { if (openAlbumName != null) albumName = openAlbumName }
+    LaunchedEffect(openArtistName) { if (openArtistName != null) artistName = openArtistName }
+
+    // The page somebody opened from elsewhere. Asked for once per request and then held, because
+    // the answer is cached on the backend and a recomposition must not turn into another request.
+    val browsed by SonoraBackend.browsed.collectAsState()
+    LaunchedEffect(openPage?.browseId) {
+        val page = openPage ?: return@LaunchedEffect
+        SonoraBackend.browse(page.browseId ?: return@LaunchedEffect, page.kind)
+    }
     var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
     var deleteTarget by remember { mutableStateOf<LibraryTrack?>(null) }
     var failedDelete by remember { mutableStateOf<LibraryTrack?>(null) }
@@ -113,7 +137,6 @@ fun LibraryScreen(
     val likedKeys = remember(playlists) { Playlists.likedKeys(playlists) }
     val albums = remember(tracks) { LibraryGrouping.albums(tracks) }
     val artists = remember(tracks) { LibraryGrouping.artists(tracks) }
-    val missingAlbums by SonoraBackend.missingAlbums.collectAsState()
 
     // Delete is only offered for files in the download folder. Now that the library also lists music
     // from the rest of the device, offering to delete someone's own collection would be wrong.
@@ -122,22 +145,46 @@ fun LibraryScreen(
     // Held by id, not by value, so a rename or a removal is reflected immediately — and so a
     // deleted playlist closes the screen instead of showing a stale copy.
     val open = openPlaylistId?.let { id -> playlists.firstOrNull { it.id == id } }
-    val album = openAlbum ?: openAlbumName?.let { name ->
+    // What the page is called, whether it came from this screen or from somewhere else.
+    val pageName = when (openPage?.kind) {
+        PageKind.ALBUM -> openPage?.name
+        else -> null
+    }
+    val remoteAlbum = browsed[openPage?.browseId]
+        ?.takeIf { openPage?.kind == PageKind.ALBUM }
+        ?.page
+        ?.tracks
+        ?.map { LibraryTrack.fromRemote(it) }
+        .orEmpty()
+
+    val album = openAlbum ?: (pageName ?: albumName ?: openAlbumName)?.let { name ->
         albums.firstOrNull { it.name.equals(name, ignoreCase = true) }
             ?: playback.track?.takeIf { it.album?.equals(name, ignoreCase = true) == true }?.let { t ->
                 LibraryGrouping.Album(name = name, artist = t.artist ?: LibraryGrouping.UNKNOWN_ARTIST, tracks = listOf(t))
+            }
+            ?: remoteAlbum.takeIf { it.isNotEmpty() }?.let { tracks ->
+                LibraryGrouping.Album(
+                    name = browsed[openPage?.browseId]?.page?.title?.takeIf { h -> h.isNotBlank() } ?: name,
+                    artist = tracks.firstNotNullOfOrNull { it.artist }
+                        ?: LibraryGrouping.UNKNOWN_ARTIST,
+                    tracks = tracks,
+                )
             }
     }
 
     if (album != null) {
         BackHandler {
             openAlbum = null
+            albumName = null
+            onClosePage()
             onCloseAlbum()
         }
         AlbumDetailScreen(
             album = album,
             onBack = {
                 openAlbum = null
+                albumName = null
+                onClosePage()
                 onCloseAlbum()
             },
             onPlayFrom = { index -> SonoraPlayer.play(context, album.tracks, index) },
@@ -146,23 +193,50 @@ fun LibraryScreen(
         return
     }
 
-    val artist = openArtist ?: openArtistName?.let { name ->
-        artists.firstOrNull { it.name.equals(name, ignoreCase = true) }
-            ?: playback.track?.takeIf { it.artist?.equals(name, ignoreCase = true) == true }?.let { t ->
-                LibraryGrouping.Artist(name = name, tracks = listOf(t))
-            }
+    val remoteArtistName = when (openPage?.kind) {
+        PageKind.ARTIST -> openPage?.name
+        else -> null
     }
+    val remoteArtist = browsed[openPage?.browseId]
+        ?.takeIf { openPage?.kind == PageKind.ARTIST }
+        ?.let { entry ->
+            LibraryGrouping.Artist(
+                name = entry.page.title?.takeIf { it.isNotBlank() } ?: openPage?.name.orEmpty(),
+                tracks = entry.page.tracks.map { LibraryTrack.fromRemote(it) },
+            ).takeIf { it.tracks.isNotEmpty() }
+        }
+
+    val artist = openArtist ?: remoteArtist
+        ?: (remoteArtistName ?: artistName ?: openArtistName)?.let { name ->
+            artists.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                ?: playback.track?.takeIf { it.artist?.equals(name, ignoreCase = true) == true }?.let { t ->
+                    LibraryGrouping.Artist(name = name, tracks = listOf(t))
+                }
+        }
+
+    // The artist's own records, from the same page as their songs. Empty until it has arrived,
+    // which is what tells the screen to keep showing placeholders rather than claim they do not
+    // exist.
+    val artistPage = browsed[openPage?.browseId]?.takeIf { openPage?.kind == PageKind.ARTIST }
+    val artistAlbums = artistPage?.page?.albums.orEmpty()
+    val artistSingles = artistPage?.page?.singles.orEmpty()
 
     if (artist != null) {
         BackHandler {
             openArtist = null
+            artistName = null
+            onClosePage()
             onCloseArtist()
         }
         ArtistDetailScreen(
             artist = artist,
-            missing = missingAlbums[artist.name],
+            remoteAlbums = artistAlbums,
+            remoteSingles = artistSingles,
+            artworkUrl = artistPage?.page?.artworkUrl,
             onBack = {
                 openArtist = null
+                artistName = null
+                onClosePage()
                 onCloseArtist()
             },
             onPlayFrom = { index -> SonoraPlayer.play(context, artist.tracks, index) },
@@ -225,6 +299,8 @@ fun LibraryScreen(
                     onDelete = { deleteTarget = it },
                     onFindLossless = { onRunSearch(it) },
                     onForget = { SonoraBackend.unsave(context, it) },
+                    onOpenAlbum = { albumName = it },
+                    onOpenArtist = { artistName = it },
                     scanning = SonoraBackend.scanning.collectAsState().value,
                 )
 
@@ -335,6 +411,9 @@ private fun TracksSection(
     /** Takes a query, not a track: the caller turns a track into the search that would find it. */
     onFindLossless: (String) -> Unit,
     onForget: (LibraryTrack) -> Unit,
+    /** Opens the album or artist page the sheet's link rows name. */
+    onOpenAlbum: (String) -> Unit,
+    onOpenArtist: (String) -> Unit,
     scanning: Boolean,
 ) {
     var pending by remember { mutableStateOf<TrackMenu?>(null) }
@@ -438,6 +517,29 @@ private fun TracksSection(
                             menu.track.artist.orEmpty(),
                         ),
                     )
+                }
+            },
+            onPlayNext = {
+                pending = null
+                SonoraPlayer.playNext(context, menu.track)
+            },
+            onAddToQueue = {
+                pending = null
+                SonoraPlayer.addToQueue(context, menu.track)
+            },
+            // Only where there is something to open. A local file's album and artist are just
+            // strings the file happens to carry, and a row that leads to a page of nothing is worse
+            // than no row.
+            onOpenAlbum = menu.track.album?.takeIf { it.isNotBlank() }?.let {
+                {
+                    pending = null
+                    onOpenAlbum(it)
+                }
+            },
+            onOpenArtist = menu.track.artist?.takeIf { it.isNotBlank() }?.let {
+                {
+                    pending = null
+                    onOpenArtist(it)
                 }
             },
         )

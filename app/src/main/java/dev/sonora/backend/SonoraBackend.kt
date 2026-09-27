@@ -12,13 +12,14 @@ import dev.sonora.metadata.CoverArtCache
 import dev.sonora.metadata.CoverArtTransport
 import dev.sonora.metadata.Discovery
 import dev.sonora.metadata.MetadataStore
-import dev.sonora.metadata.MusicBrainzClient
 import dev.sonora.metadata.MusicBrainzTransport
-import dev.sonora.metadata.ReleaseGroup
 import dev.sonora.protocol.DownloadOutcome
 import dev.sonora.protocol.SoulseekSession
 import dev.sonora.protocol.server.LoginResponse
 import dev.sonora.service.SonoraService
+import dev.sonora.ytm.YtmBrowse
+import dev.sonora.ytm.YtmCatalog
+import dev.sonora.ytm.YtmCatalogSearch
 import dev.sonora.ytm.YtmSearch
 import dev.sonora.ytm.YtmTrack
 import java.io.File
@@ -171,25 +172,19 @@ object SonoraBackend {
 
     val playHistory: StateFlow<List<PlayedTrack>> = _playHistory.asStateFlow()
 
-    /**
-     * Albums MusicBrainz lists for an artist that the library does not hold, keyed by artist.
-     *
-     * Absent means "not looked up yet" or "could not be reached", never "nothing missing" — an
-     * empty list is a real answer, and the two must not look the same to the UI.
-     */
-    private val _missingAlbums = MutableStateFlow<Map<String, List<ReleaseGroup>>>(emptyMap())
-
-    val missingAlbums: StateFlow<Map<String, List<ReleaseGroup>>> = _missingAlbums.asStateFlow()
 
     /**
-     * What the catalogue knows by the name that was searched for.
+     * What YouTube Music holds for an artist or an album, by browse id.
      *
-     * Separate from [search] because the two answer at completely different speeds — peers stream
-     * in over seconds, the catalogue answers in one request — and the faster one should not wait.
+     * A cache rather than state that is fetched per screen, because these pages are reached from
+     * three different places — a search result, a library row's menu, the player — and a listener
+     * who opens the same artist's page three times should pay for it once. It grows as they explore
+     * and is dropped when the process is, which is the right lifetime for a page of somebody else's
+     * catalogue.
      */
-    private val _catalogue = MutableStateFlow<List<ReleaseGroup>>(emptyList())
+    private val _browsed = MutableStateFlow<Map<String, BrowsedPage>>(emptyMap())
 
-    val catalogue: StateFlow<List<ReleaseGroup>> = _catalogue.asStateFlow()
+    val browsed: StateFlow<Map<String, BrowsedPage>> = _browsed.asStateFlow()
 
     /**
      * Which sources the search screen shows.
@@ -201,7 +196,6 @@ object SonoraBackend {
 
     val searchSources: StateFlow<Set<SearchSource>> = _searchSources.asStateFlow()
 
-    private var brainz: MusicBrainzClient? = null
 
     private var coverArt: CoverArtCache? = null
 
@@ -319,7 +313,6 @@ object SonoraBackend {
      */
     fun clearSearch() {
         _search.value = SearchState()
-        _catalogue.value = emptyList()
     }
 
     /**
@@ -685,56 +678,6 @@ object SonoraBackend {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
     }
 
-    /**
-     * Looks up what else an artist released, once.
-     *
-     * Every answer is cached on disk, so this is two requests the first time an artist is opened
-     * and none afterwards. A lookup that fails is not recorded, so it is retried rather than
-     * remembered as "nothing missing".
-     */
-    fun loadMissingAlbums(context: Context, artist: String, owned: List<String>) {
-        if (_missingAlbums.value.containsKey(artist)) return
-
-        scope.launch {
-            val releases = musicBrainz(context).studioAlbums(artist)
-            if (releases == null) {
-                Log.d(TAG, "musicbrainz: no discography for $artist")
-                return@launch
-            }
-
-            val missing = Discovery.missingAlbums(owned, releases)
-            Log.d(TAG, "musicbrainz: $artist -> ${releases.size} release(s), ${missing.size} missing")
-
-            _missingAlbums.update { it + (artist to missing) }
-        }
-    }
-
-    /**
-     * Looks up what the catalogue holds under the searched name, alongside the Soulseek search.
-     *
-     * Nothing is shown until the answer arrives, and an answer that arrives after a newer search
-     * has started is dropped rather than shown under the wrong query.
-     */
-    private fun loadCatalogue(context: Context, query: String) {
-        _catalogue.value = emptyList()
-
-        scope.launch {
-            val albums = musicBrainz(context).searchAlbums(query) ?: return@launch
-
-            Log.d(TAG, "catalogue: ${albums.size} album(s) for $query")
-
-            if (_search.value.query == query) _catalogue.value = albums
-        }
-    }
-
-    private fun musicBrainz(context: Context): MusicBrainzClient =
-        brainz ?: MusicBrainzClient(
-            store = MetadataStore(File(context.filesDir, METADATA_CACHE_DIRECTORY)),
-            fetch = MusicBrainzTransport(
-                onTrace = { Log.d(TAG, "musicbrainz: $it") },
-                onFailure = { Log.d(TAG, "musicbrainz failed: $it") },
-            ),
-        ).also { brainz = it }
 
     /**
      * Queues a search result for download.
@@ -963,7 +906,6 @@ object SonoraBackend {
         Log.d(TAG, "searching: $query")
 
         recordSearch(context, query)
-        loadCatalogue(context, query)
 
         scope.launch {
             // The socket write must not happen on the caller's thread.
@@ -1019,15 +961,78 @@ object SonoraBackend {
      * to do with the network, so a listener who is not connected still gets results — which is the
      * point of it being a separate source rather than a filter on the peer search.
      */
+    /**
+     * YouTube Music's whole answer to a query: songs, albums and artists.
+     *
+     * The songs come from the songs tab, which is a much better-behaved response than the mixed one
+     * — consistent rows, and a continuation token that pages properly — so they are asked for
+     * separately rather than dug out of the mixed response. The albums and artists have no such
+     * tab, so they come from the mixed response. Two requests rather than one, because the
+     * alternative is a songs list assembled out of the carousels.
+     */
     private fun loadYoutube(query: String) {
         scope.launch {
             val tracks = YtmSearch.search(query)
             Log.d(TAG, "youtube: ${tracks.size} track(s) for $query")
             if (_search.value.query == query) {
-                _search.update { it.copy(youtube = tracks, youtubeLoading = false) }
+                _search.update { it.copy(youtube = tracks) }
+            }
+        }
+
+        // Albums and artists, each shown the moment its own answer lands rather than after the
+        // slowest of the two. The pair is what ends the wait, since until both have looked there
+        // may yet be a shelf to show.
+        scope.launch {
+            val albums = YtmCatalogSearch.albums(query)
+            if (_search.value.query == query) {
+                _search.update { it.copy(entities = it.entities.copy(albums = albums)) }
+            }
+        }
+
+        scope.launch {
+            val artists = YtmCatalogSearch.artists(query)
+            if (_search.value.query == query) {
+                _search.update {
+                    it.copy(entities = it.entities.copy(artists = artists), youtubeLoading = false)
+                }
             }
         }
     }
+
+    /**
+     * Reads an artist's or an album's page off YouTube Music, once.
+     *
+     * Returns the cached page if there is one, so opening the same artist twice does not ask twice.
+     * The caller watches [browsed] rather than waiting on this, because a screen that is going to
+     * show placeholders anyway has nothing to gain from a suspending call.
+     */
+    fun browse(browseId: String, kind: PageKind) {
+        if (browseId.isBlank() || _browsed.value.containsKey(browseId)) return
+
+        scope.launch {
+            // One request for the whole page, because asked plainly YouTube answers with all of
+            // it: the header, the songs, and the albums underneath. A second call for the albums
+            // would buy nothing and would make them arrive under a page that already claimed to
+            // be finished.
+            val page = YtmBrowse.page(browseId)
+            Log.d(
+                TAG,
+                "browse: $browseId -> ${page.tracks.size} track(s), " +
+                    "${page.albums.size} album(s), ${page.singles.size} single(s)",
+            )
+            _browsed.update { it + (browseId to BrowsedPage(kind, page)) }
+        }
+    }
+
+    /**
+     * An artist's tracks, as though they were in the library.
+     *
+     * Only offered once the page has actually arrived: a partial list that grows under the listener
+     * while they read it is a worse thing than a page that says it is still loading, and the
+     * difference is a screen that has to be able to say so.
+     */
+    fun browsedTracks(browseId: String): List<LibraryTrack>? =
+        _browsed.value[browseId]?.page?.tracks?.map { LibraryTrack.fromRemote(it) }?.ifEmpty { null }
 
     /** Remembers a query so the search screen can offer it again. */    private fun recordSearch(context: Context, query: String) {
         editSearchHistory(context) { SearchHistory.record(it, query) }

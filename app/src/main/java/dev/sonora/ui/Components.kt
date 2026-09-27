@@ -77,9 +77,10 @@ internal fun MediaCard(
     shape: RoundedCornerShape,
     onClick: () -> Unit,
     icon: ImageVector? = null,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(140.dp)
             .clickable(onClick = onClick),
     ) {

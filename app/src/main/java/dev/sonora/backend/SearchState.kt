@@ -1,6 +1,7 @@
 package dev.sonora.backend
 
 import dev.sonora.protocol.peer.FileAttributes
+import dev.sonora.ytm.YtmCatalog
 import dev.sonora.ytm.YtmTrack
 
 /** How results are ordered. */
@@ -21,7 +22,6 @@ enum class SortMode(val label: String) {
  */
 enum class SearchSource(val label: String) {
     YOUTUBE_MUSIC("YouTube"),
-    CATALOGUE("Catalogue"),
     SOULSEEK("Soulseek"),
 }
 
@@ -57,6 +57,11 @@ data class SearchState(
     val youtube: List<YtmTrack> = emptyList(),
     /** True until YouTube Music has answered, so the screen can say so rather than show nothing. */
     val youtubeLoading: Boolean = false,
+    /**
+     * YouTube Music's albums and artists for this query, held apart from [youtube] because they
+     * are pages rather than rows: tapping one opens it rather than playing it.
+     */
+    val entities: YtmCatalog = YtmCatalog(),
     /** Everything matched, including what [hits] dropped, so the UI can say "showing X of Y". */
     val matched: Int = 0,
     /** Distinct peers contributing results — the redundancy available for any one track. */

@@ -130,6 +130,44 @@ object SonoraPlayer {
     }
 
     /**
+     * Puts one track straight after whatever is sounding.
+     *
+     * "Play next" and "add to queue" are the same operation at different distances, and they are
+     * worth having separately: the first is for the song you have just thought of while this one is
+     * still going, and the second is for the one you will want in a few minutes' time. Both are
+     * applied to the service rather than to a local list, so the panel cannot disagree with the
+     * player about the order.
+     */
+    fun playNext(context: Context, track: LibraryTrack) = insertAt(track, offset = 1)
+
+    fun addToQueue(context: Context, track: LibraryTrack) = insertAt(track, offset = 0)
+
+    private fun insertAt(track: LibraryTrack, offset: Int) {
+        val active = controller ?: run {
+            // Nothing is playing, so the queue is the only queue. Held rather than dropped: a
+            // track queued before the service finishes starting is the one the listener is waiting
+            // for, and silently playing nothing would look like the tap did nothing.
+            pendingQueue = listOf(track)
+            pendingIndex = 0
+            return
+        }
+
+        scope.launch {
+            val items = _upNext.value.queue.mapNotNull { itemFor(it) }
+            val target = (active.currentMediaItemIndex + offset).coerceIn(0, items.size)
+            active.addMediaItems(target, listOfNotNull(itemFor(track)))
+
+            // The mirror moves with the service rather than waiting to be told. A queue panel that
+            // is a frame behind a tap reads as the tap having failed, which is the one thing it
+            // definitely did not do.
+            val current = _upNext.value.index.coerceAtLeast(0)
+            val queue = _upNext.value.queue.toMutableList()
+            queue.add((current + offset).coerceIn(0, queue.size), track)
+            _upNext.value = UpNext(queue = queue, index = current)
+        }
+    }
+
+    /**
      * Takes one track out of the queue.
      *
      * Done on the service rather than in a local copy, because a queue that disagrees with the

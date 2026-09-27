@@ -176,7 +176,7 @@ object YtmSearch {
     }
 
     /** Reads the songs shelf out of the tabs and off the rows. */
-    private fun parse(root: JsonElement): List<YtmTrack> {
+    internal fun parse(root: JsonElement): List<YtmTrack> {
         val tracks = mutableListOf<YtmTrack>()
         for (shelf in shelves(root)) {
             for (row in shelf["contents"].arr()) {
@@ -194,13 +194,33 @@ object YtmSearch {
      * `continuationContents.musicShelfContinuation` with no tab around it. Walking one path and
      * expecting the other is a second page that is requested and then never read.
      */
-    private fun shelves(root: JsonElement): List<JsonObject> {
+    /**
+     * Every music shelf in a response, whichever wrapper it arrived in.
+     *
+     * Shared with [YtmBrowse] because a browse response wraps its shelves somewhere else again and
+     * the wrapper is the only thing that differs — the shelves themselves, and the rows in them,
+     * are the same objects in both answers.
+     */
+    internal fun shelves(root: JsonElement): List<JsonObject> {
         val found = mutableListOf<JsonObject>()
 
-        for (tab in root.descend("contents", "tabbedSearchResultsRenderer", "tabs").arr()) {
+        // Two wrappers, because search and browse answer differently: a search nests its shelves
+        // under `tabbedSearchResultsRenderer`, a page under `singleColumnBrowseResultsRenderer`.
+        // Reading only the first is a browse that finds no songs and reports an empty artist.
+        val tabRoots = root.descend("contents", "tabbedSearchResultsRenderer", "tabs").arr() +
+            root.descend("contents", "singleColumnBrowseResultsRenderer", "tabs").arr()
+
+        for (tab in tabRoots) {
             val sections = tab.descend("tabRenderer", "content", "sectionListRenderer", "contents").arr()
             for (section in sections) {
+                // Two depths, because the two kinds of search put the shelf in different places: an
+                // unfiltered answer nests one row per `itemSectionRenderer`, while a filtered one
+                // — albums, artists, playlists — hands back the shelf itself. Reading only the
+                // deeper one is a shelf of albums that silently finds nothing.
                 section.obj()?.get("musicShelfRenderer").obj()?.let(found::add)
+                section.descend("itemSectionRenderer", "contents").arr().forEach { row ->
+                    row.obj()?.get("musicShelfRenderer").obj()?.let(found::add)
+                }
             }
         }
 
@@ -220,7 +240,7 @@ object YtmSearch {
      * a search row, an album page and a playlist row all lay the same fields out differently, and
      * a spacer column is sometimes sitting where the credits were in the last shape seen.
      */
-    private fun parseRow(element: JsonElement?): YtmTrack? {
+    internal fun parseRow(element: JsonElement?): YtmTrack? {
         val row = element.obj() ?: return null
         val videoId = row.descend("playlistItemData", "videoId").str() ?: return null
 

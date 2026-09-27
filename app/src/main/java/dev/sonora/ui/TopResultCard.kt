@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ButtonDefaults
@@ -31,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.sonora.backend.LibraryTrack
+import dev.sonora.ytm.YtmEntity
 
 /**
  * The search page's one promoted result, above the list it also appears in.
@@ -141,4 +146,37 @@ internal fun TopResultCard(
             }
         }
     }
+}
+
+/**
+ * An album or an artist in a results shelf, as a card.
+ *
+ * The same card as a shelf entry elsewhere, with a glyph standing in until the picture arrives and
+ * after it if there is none — the two are not told apart by shape, because from a distance they are
+ * the same kind of thing: somewhere to go next. Only the credits underneath and the glyph say which.
+ */
+@Composable
+internal fun EntityCard(
+    entity: YtmEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    MediaCard(
+        artwork = rememberArtworkAt(entity.artworkUrl, px = CARD_ART_PX),
+        title = entity.title,
+        // Not decoration: one album title belongs to several different artists, and only this says
+        // which one this is.
+        subtitle = listOfNotNull(
+            entity.subtitle,
+            if (entity.kind == YtmEntity.Kind.ALBUM) "Album" else "Artist",
+        ).joinToString("  ·  "),
+        shape = RoundedCornerShape(8.dp),
+        icon = if (entity.kind == YtmEntity.Kind.ALBUM) {
+            Icons.Filled.Album
+        } else {
+            Icons.Filled.Person
+        },
+        onClick = onClick,
+        modifier = modifier,
+    )
 }
