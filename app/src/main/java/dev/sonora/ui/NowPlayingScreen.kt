@@ -67,6 +67,9 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.Color
 import dev.sonora.backend.AudioQuality
 import dev.sonora.backend.RepeatMode
 import dev.sonora.backend.SonoraPlayer
@@ -75,6 +78,7 @@ import dev.sonora.ui.theme.accentText
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingScreen(
+    context: android.content.Context,
     onClose: () -> Unit,
     isLiked: Boolean,
     onToggleLike: () -> Unit,
@@ -85,6 +89,10 @@ fun NowPlayingScreen(
     onOpenAlbum: (String) -> Unit = {},
 ) {
     val playback by SonoraPlayer.state.collectAsState()
+    val upNext by SonoraPlayer.upNext.collectAsState()
+    // The queue is a panel over the player rather than a page, so it is state here and not a screen
+    // the caller has to know about. A listener who opens it is still listening.
+    var queueOpen by remember { mutableStateOf(false) }
     val track = playback.track ?: return
     // Non-null only while a finger is down on the bar. Held locally so the polled position cannot
     // drag the handle back out from under the drag.
@@ -159,9 +167,27 @@ fun NowPlayingScreen(
         // two disagreeing about what the record looks like.
         ArtworkBackdrop(track = track)
 
+        // The queue, over everything. Drawn after the background so it is not behind the sleeve,
+        // and before the content so the content is what it replaces.
+        if (queueOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.92f)),
+            ) {
+                QueuePanel(
+                    upNext = upNext,
+                    onPlayFrom = { index -> SonoraPlayer.play(context, upNext.queue, index) },
+                    onRemove = { index -> SonoraPlayer.removeFromQueue(index) },
+                    onClose = { queueOpen = false },
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = if (queueOpen) 0f else 1f }
                 .statusBarsPadding()
                 .padding(start = 24.dp, top = 4.dp, end = 24.dp, bottom = 24.dp)
                 .draggable(
@@ -191,28 +217,17 @@ fun NowPlayingScreen(
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
             )
-            IconButton(onClick = onToggleLike) {
-                Icon(
-                    imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = if (isLiked) {
-                        "Remove from Liked Songs"
-                    } else {
-                        "Add to Liked Songs"
-                    },
-                    tint = if (isLiked) {
-                        MaterialTheme.colorScheme.accentText
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-            IconButton(onClick = onAddToPlaylist) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                    contentDescription = "Add to playlist",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Spacer(Modifier.width(6.dp))
+
+            LikeGlyph(liked = isLiked, onClick = onToggleLike)
+
+            Spacer(Modifier.width(8.dp))
+
+            CircleGlyph(
+                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                contentDescription = "Add to playlist",
+                onClick = onAddToPlaylist,
+            )
         }
 
         Column(
@@ -365,27 +380,9 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
-                    onClick = onToggleShuffle,
-                    modifier = Modifier.size(64.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Shuffle,
-                        contentDescription = if (playback.isShuffled) {
-                            "Turn shuffle off"
-                        } else {
-                            "Turn shuffle on"
-                        },
-                        // Active state is carried by colour, since a shuffle icon has no filled
-                        // counterpart to switch to.
-                        tint = if (playback.isShuffled) {
-                            MaterialTheme.colorScheme.accentText
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
+                // Only the three transport buttons. Shuffle and repeat are not transport — they
+                // change what the playhead will meet rather than moving it — and they live in the
+                // capsule below. Two controls for one state is worse than one.
                 IconButton(
                     onClick = { animatePrevious() },
                     modifier = Modifier.size(64.dp),
@@ -419,14 +416,28 @@ fun NowPlayingScreen(
                         modifier = Modifier.size(32.dp),
                     )
                 }
-                IconButton(
-                    onClick = onCycleRepeat,
-                    modifier = Modifier.size(64.dp),
-                ) {
-                    Icon(
-                        // Repeat One is the only mode with a distinct glyph; off and loop-queue
-                        // share one and are told apart by colour, as they are in Spotify.
-                        imageVector = if (playback.repeatMode == RepeatMode.One) {
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // The row under the transport: the queue at one end and a capsule of the modes that
+            // change what comes next at the other. Kept apart from the transport because they are
+            // not transport — nothing here moves the playhead, they change what the playhead will
+            // meet, and putting them among the skip buttons invites that confusion.
+            PlayerActionRow(
+                queueOpen = queueOpen,
+                onToggleQueue = { queueOpen = !queueOpen },
+                modifier = Modifier.padding(horizontal = 24.dp),
+            ) {
+                ActionCapsule {
+                    CapsuleSegment(
+                        icon = Icons.Filled.Shuffle,
+                        contentDescription = if (playback.isShuffled) "Turn shuffle off" else "Turn shuffle on",
+                        onClick = onToggleShuffle,
+                        active = playback.isShuffled,
+                    )
+                    CapsuleSegment(
+                        icon = if (playback.repeatMode == RepeatMode.One) {
                             Icons.Filled.RepeatOne
                         } else {
                             Icons.Filled.Repeat
@@ -436,20 +447,16 @@ fun NowPlayingScreen(
                             RepeatMode.All -> "Turn repeat-one on"
                             RepeatMode.One -> "Turn repeat off"
                         },
-                        tint = if (playback.repeatMode == RepeatMode.Off) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.accentText
-                        },
-                        modifier = Modifier.size(28.dp),
+                        onClick = onCycleRepeat,
+                        active = playback.repeatMode != RepeatMode.Off,
+                        showDivider = false,
                     )
                 }
             }
         }
     }
-    }
 }
-
+}
 
 private fun formatMillis(value: Long): String {
     val totalSeconds = (value / 1000L).coerceAtLeast(0L)

@@ -44,8 +44,19 @@ object SonoraPlayer {
     private var pendingQueue: List<LibraryTrack>? = null
     private var pendingIndex = 0
 
-    /** Mirrors the local queue because the service exposes media items, not LibraryTrack values. */
-    private var queue: List<LibraryTrack> = emptyList()
+    /**
+     * What is playing and what comes next, for the player's own queue panel.
+     *
+     * Published rather than read on demand because the service only exposes media items and the
+     * panel has to show the tracks — their covers, their artists, which one is the one playing — and
+     * a media item cannot answer any of that. Mirrors [queue] for the same reason.
+     */
+    private val _upNext = MutableStateFlow<UpNext>(UpNext.Empty)
+
+    val upNext: StateFlow<UpNext> = _upNext.asStateFlow()
+
+    /** The same list, for the paths that only need to look something up. */
+    private val queue: List<LibraryTrack> get() = _upNext.value.queue
 
     /** Resolved streams, by track key. A YouTube URL expires, so this is a cache and not a store. */
     private val resolved = HashMap<String, YtmAudio>()
@@ -118,6 +129,50 @@ object SonoraPlayer {
         }
     }
 
+    /**
+     * Takes one track out of the queue.
+     *
+     * Done on the service rather than in a local copy, because a queue that disagrees with the
+     * player about what is in it will put the removed track back the moment anything else
+     * triggers a refresh — and the listener has just been told it is gone.
+     *
+     * The track currently sounding is not removed: taking out what is playing would either stop
+     * the music or jump to a different song, and neither is what pressing remove on the thing you
+     * are listening to can reasonably mean.
+     */
+    fun removeFromQueue(index: Int) {
+        val active = controller ?: return
+        scope.launch { removeFromQueueNow(active, index) }
+    }
+
+    private suspend fun removeFromQueueNow(active: MediaController, index: Int) {
+        if (index == _upNext.value.index) return
+
+        val remaining = _upNext.value.queue.filterIndexed { position, _ -> position != index }
+        // The index of whatever was sounding shifts down by one when something before it goes.
+        val nowPlaying = (_upNext.value.index - if (index < _upNext.value.index) 1 else 0)
+            .coerceIn(0, (remaining.size - 1).coerceAtLeast(0))
+
+        val items = remaining.mapNotNull { itemFor(it) }
+        if (items.isEmpty()) {
+            active.stop()
+            active.clearMediaItems()
+            _upNext.value = UpNext.Empty
+            _state.value = PlaybackState()
+            return
+        }
+
+        _upNext.value = UpNext(queue = remaining, index = nowPlaying)
+        val target = items.indexOfFirst { it.mediaId == remaining[nowPlaying].key }
+            .let { if (it >= 0) it else 0 }
+
+        // Kept on the same track where it can be, so removing something from further along the
+        // queue does not interrupt what is playing.
+        val keepPosition = active.currentPosition
+        active.setMediaItems(items, target, keepPosition)
+        active.prepare()
+    }
+
     fun togglePlayPause() {
         val active = controller ?: return
         if (active.isPlaying) active.pause() else active.play()
@@ -162,7 +217,7 @@ object SonoraPlayer {
 
         active.stop()
         active.clearMediaItems()
-        queue = emptyList()
+        _upNext.value = UpNext.Empty
         pendingQueue = null
         _state.value = PlaybackState()
     }
@@ -230,8 +285,8 @@ object SonoraPlayer {
         // appear until all of them had answered — seconds of nothing at all, on a screen where the
         // listener has just pressed something. The queue is known immediately; only the audio is
         // late.
-        queue = playable
         _state.value = PlaybackState(track = playable[index], isResolving = true)
+        _upNext.value = UpNext(queue = playable, index = index)
 
         scope.launch {
             // The tapped track is resolved first and on its own, because it is the only one whose
@@ -271,7 +326,7 @@ object SonoraPlayer {
             active.prepare()
             active.play()
             updateTrack(active, resolvedIndex)
-        }
+            }
     }
 
     /**
@@ -336,6 +391,11 @@ object SonoraPlayer {
 
     private fun updateTrack(active: MediaController, index: Int = active.currentMediaItemIndex) {
         val track = queue.getOrNull(index) ?: return
+
+        // The panel shows which entry is sounding, so the index travels with the queue rather than
+        // being read from the controller at the moment it is drawn — a shuffle reorders the
+        // controller's own list, and a position in that list is not a position in this one.
+        _upNext.value = UpNext(queue = queue, index = index)
         _state.value = PlaybackState(
             track = track,
             isPlaying = active.isPlaying,

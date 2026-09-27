@@ -672,6 +672,7 @@ private fun MainTabs(state: BackendState) {
             ) {
                 BackHandler { playerOpen = false }
                 NowPlayingScreen(
+                    context = context,
                     onClose = { playerOpen = false },
                     isLiked = playback.track?.let { it.key in likedKeys } == true,
                     onToggleLike = {

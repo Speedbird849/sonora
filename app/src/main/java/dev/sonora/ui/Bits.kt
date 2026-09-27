@@ -386,34 +386,6 @@ internal fun Modifier.rowClickable(
     },
 )
 
-/** A circle that carries a glyph, sized so the touch target is not the glyph's own bounds. */
-@Composable
-internal fun CircleGlyph(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    size: Dp = 36.dp,
-    glyphSize: Dp = 20.dp,
-    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    enabled: Boolean = true,
-) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        CompositionLocalProvider(LocalContentColor provides tint) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(glyphSize),
-            )
-        }
-    }
-}
 
 /**
  * How much room the floating bars take at the foot of a page.

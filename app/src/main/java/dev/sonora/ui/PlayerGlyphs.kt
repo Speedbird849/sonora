@@ -1,0 +1,284 @@
+package dev.sonora.ui
+
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+/**
+ * A control on the player: a glyph on a translucent disc.
+ *
+ * The disc is the point. A bare glyph floating over artwork has no edge of its own, so it belongs to
+ * whatever happens to be behind it — legible on a dark sleeve, gone on a pale one, and it changes
+ * with every track. A disc gives it a surface that does not move, and a hairline around the disc
+ * gives it an edge. Twenty per cent white is enough to lift off a dark sleeve without turning into
+ * a button on a light one; forty is for the state the listener has chosen.
+ */
+private val DISC_IDLE = 0.18f
+
+private val DISC_ACTIVE = 0.34f
+
+@Composable
+internal fun CircleGlyph(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 34.dp,
+    glyphSize: Dp = 19.dp,
+    active: Boolean = false,
+) {
+    val disc by animateColorAsState(
+        targetValue = Color.White.copy(alpha = if (active) DISC_ACTIVE else DISC_IDLE),
+        animationSpec = tween(180),
+        label = "glyphDisc",
+    )
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(disc)
+            // No ripple: the disc already brightens, and a ripple on top of a state change is two
+            // answers to one tap.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Crossfade(targetState = icon, animationSpec = tween(180), label = "glyphIcon") { shown ->
+            Icon(
+                imageVector = shown,
+                contentDescription = contentDescription,
+                tint = Color.White,
+                modifier = Modifier.size(glyphSize),
+            )
+        }
+    }
+}
+
+/** The like control, which fills when the track is liked and is dimmer when it is not. */
+@Composable
+internal fun LikeGlyph(
+    liked: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    CircleGlyph(
+        icon = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+        contentDescription = if (liked) {
+            "Remove from Liked Songs"
+        } else {
+            "Add to Liked Songs"
+        },
+        onClick = onClick,
+        active = liked,
+        modifier = modifier,
+    )
+}
+
+/** The three-dot control that opens the track's own sheet. */
+@Composable
+internal fun MenuGlyph(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    CircleGlyph(
+        icon = Icons.Filled.MoreHoriz,
+        contentDescription = "More",
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
+/** The height of the row of discs under the transport. */
+private val ACTION_SIZE: Dp = 44.dp
+
+/** The glyph inside one of them. */
+private val ACTION_GLYPH: Dp = 26.dp
+
+/** How far the row is inset so its outer controls sit clear of the screen's edges. */
+private val ACTION_EDGE_INSET: Dp = 28.dp
+
+/**
+ * The row of secondary controls under the transport.
+ *
+ * The two ends are bare discs and the middle is a capsule of two or three, which is what makes
+ * several controls read as one object rather than as a row of unrelated buttons. The width of the
+ * row is computed for the widest state the capsule can be in, so that a control moving in or out of
+ * the capsule does not shift its neighbours sideways — the middle is allowed to change, the outer
+ * two are not.
+ */
+@Composable
+internal fun PlayerActionRow(
+    queueOpen: Boolean,
+    onToggleQueue: () -> Unit,
+    modifier: Modifier = Modifier,
+    capsule: @Composable () -> Unit,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val rowWidth = ACTION_EDGE_INSET * 2 + ACTION_SIZE * 2 + 64.dp * 3
+        val inset = ((maxWidth - rowWidth) / 2).coerceAtLeast(0.dp)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = inset),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { capsule() }
+
+            ActionGlyph(
+                icon = Icons.Filled.QueueMusic,
+                contentDescription = "Up next",
+                active = queueOpen,
+                onClick = onToggleQueue,
+            )
+        }
+    }
+}
+
+/** One of the bare discs at the ends of the row. */
+@Composable
+private fun ActionGlyph(
+    icon: ImageVector,
+    contentDescription: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val disc by animateColorAsState(
+        targetValue = Color.White.copy(alpha = if (active) 0.20f else 0f),
+        animationSpec = tween(180),
+        label = "actionDisc",
+    )
+
+    Box(
+        modifier = Modifier
+            .size(ACTION_SIZE)
+            .clip(CircleShape)
+            .background(disc)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White.copy(alpha = if (active) 1f else 0.75f),
+            modifier = Modifier.size(ACTION_GLYPH),
+        )
+    }
+}
+
+/**
+ * A capsule of two or three controls.
+ *
+ * Separated by a hairline rather than a gap. A gap between the segments would read as separate
+ * buttons that happen to be near each other; a hairline reads as one control that is divided, which
+ * is what it is — and it grows to fit rather than clipping, so adding a third control does not
+ * squeeze the other two.
+ */
+@Composable
+internal fun ActionCapsule(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .height(ACTION_SIZE)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.12f)),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+/** One segment of a capsule: a square hit area in a round container, with a hairline after it. */
+@Composable
+internal fun CapsuleSegment(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    width: Dp = 64.dp,
+    active: Boolean = false,
+    showDivider: Boolean = true,
+) {
+    val tint by animateColorAsState(
+        targetValue = Color.White.copy(alpha = if (active) 1f else 0.75f),
+        animationSpec = tween(180),
+        label = "capsuleTint",
+    )
+
+    Row(
+        modifier = modifier
+            .height(ACTION_SIZE)
+            .width(width)
+            .background(if (active) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+
+        if (showDivider) {
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(ACTION_SIZE)
+                    .background(Color.White.copy(alpha = 0.20f)),
+            )
+        }
+    }
+}
