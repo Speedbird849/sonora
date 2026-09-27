@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -165,7 +166,10 @@ private fun CategoryBanner(
     playlists: List<YtmPlaylistRef>,
 ) {
     val tint = Color(category.color)
-    val cover = rememberArtworkAt(
+    // The shipped picture where the category has one, so the page's banner is there the moment it
+    // opens rather than after a request; the first playlist's cover otherwise.
+    val shipped = rememberCategoryArtwork(category.title)
+    val fetched = rememberArtworkAt(
         playlists.firstNotNullOfOrNull { it.artworkUrl },
         px = CARD_ART_PX,
     )
@@ -175,14 +179,23 @@ private fun CategoryBanner(
             .fillMaxWidth()
             .height(180.dp),
     ) {
-        if (cover != null) {
+        if (shipped != null) {
             Image(
-                bitmap = cover,
+                painter = shipped,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(28.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded),
+                    .blur(28.dp, BlurredEdgeTreatment.Unbounded),
+            )
+        } else if (fetched != null) {
+            Image(
+                bitmap = fetched,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(28.dp, BlurredEdgeTreatment.Unbounded),
             )
         }
 

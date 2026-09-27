@@ -13,6 +13,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.FlowRow
@@ -44,6 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.sonora.R
 import dev.sonora.backend.Shelves
 import dev.sonora.ytm.YtmCategory
 
@@ -74,23 +76,33 @@ internal fun CategoryGrid(
     // any of the forty answers.
     val shelves = SonoraBackend.shelves.collectAsState().value
 
-    FlowRow(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = PAGE_GUTTER),
-        maxItemsInEachRow = 2,
-        horizontalArrangement = Arrangement.spacedBy(SHELF_SPACING),
-        verticalArrangement = Arrangement.spacedBy(SHELF_SPACING),
-    ) {
-        categories.forEach { category ->
-            CategoryTile(
-                category = category,
-                artwork = shelves.playlists[category.title]
-                    ?.firstNotNullOfOrNull { it.artworkUrl },
-                selected = category.title == chosen?.title,
-                onClick = { onChoose(category) },
-                modifier = Modifier.weight(1f),
-            )
+    // Measured rather than weighted. A weight hands the child the leftover width, which a child
+    // with an intrinsic size — a shipped painter does — takes as a minimum and overrides, so a row
+    // of pictures ends up one full-width tile with a half-width one beside it. A width computed
+    // from the row is the only thing that holds two across whatever the pictures are.
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val tile = ((maxWidth - PAGE_GUTTER * 2 - SHELF_SPACING) / 2).coerceAtLeast(80.dp)
+
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = PAGE_GUTTER),
+            maxItemsInEachRow = 2,
+            horizontalArrangement = Arrangement.spacedBy(SHELF_SPACING),
+            verticalArrangement = Arrangement.spacedBy(SHELF_SPACING),
+        ) {
+            categories.forEach { category ->
+                CategoryTile(
+                    category = category,
+                    // The grid's own file is what the tile draws; this is only the fallback for a
+                    // category that has no file, and it is the one the shelf below shares.
+                    artwork = shelves.playlists[category.title]
+                        ?.firstNotNullOfOrNull { it.artworkUrl },
+                    selected = category.title == chosen?.title,
+                    onClick = { onChoose(category) },
+                    modifier = Modifier.width(tile),
+                )
+            }
         }
     }
 }
@@ -116,7 +128,8 @@ private fun CategoryTile(
     modifier: Modifier = Modifier,
 ) {
     val tint = Color(category.color)
-    val picture = rememberArtworkAt(artwork, px = CARD_ART_PX)
+    val shipped = rememberCategoryArtwork(category.title)
+    val fetched = rememberArtworkAt(artwork, px = CARD_ART_PX)
 
     Box(
         modifier = modifier
@@ -134,9 +147,16 @@ private fun CategoryTile(
             )
             .clickable(onClick = onClick),
     ) {
-        if (picture != null) {
+        if (shipped != null) {
             Image(
-                bitmap = picture,
+                painter = shipped,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (fetched != null) {
+            Image(
+                bitmap = fetched,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

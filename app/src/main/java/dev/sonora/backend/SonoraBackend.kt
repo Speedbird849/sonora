@@ -1094,15 +1094,13 @@ object SonoraBackend {
             Log.d(TAG, "shelves: ${categories.size} categor(ies)")
             _shelves.update { it.copy(categories = categories, loading = false) }
 
-            // Enough of them to fill the first screen of tiles, and no more. Each is a request, and
-            // a listener who never scrolls past the first screen should not have paid for the
-            // thirty genres underneath it.
-            categories.take(ART_PREFETCH).forEach { loadCategory(it) }
+            // Only the one the page shows, and only if the caller has not said which. The grid's
+            // own pictures ship with the app, so nothing is fetched for the grid itself.
+            val first = _shelves.value.chosen ?: categories.firstOrNull()
+            if (first != null) loadCategory(first)
         }
     }
 
-    /** How many categories get their pictures read ahead of being tapped. */
-    private const val ART_PREFETCH = 8
 
     /**
      * The playlists behind one category, fetched once per category.

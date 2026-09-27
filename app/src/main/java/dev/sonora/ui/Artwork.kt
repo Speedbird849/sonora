@@ -154,6 +154,11 @@ private fun fetchRemoteArtwork(url: String, px: Int): ImageBitmap? {
             if (!response.isSuccessful) return@use null
             val bytes = response.body?.bytes() ?: return@use null
 
+            // Written to disk before it is decoded, so the next launch reads bytes rather than
+            // asking again. A shelf of covers is the same shelf every time the page is opened, and
+            // fetching it again is forty requests for pictures that have not changed.
+            RemoteArtworkCache.put(request.url.toString(), bytes)
+
             // Sampled against what the image will be *drawn* at, not halved by habit. A flat 2 is
             // right for a 52dp row and ruinous for a full-screen sleeve — the cover comes back at
             // half the pixels it is about to be stretched across, and there is no way to get the

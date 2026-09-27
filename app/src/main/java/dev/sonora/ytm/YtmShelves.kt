@@ -63,8 +63,26 @@ object YtmShelves {
     /** The page that holds the mood and genre grids. */
     private const val MOODS_AND_GENRES = "FEmusic_moods_and_genres"
 
-    /** How many categories of each kind to keep. Enough for two rows of chips. */
-    private const val MAX_PER_GROUP = 12
+    /**
+     * How many of each kind to keep.
+     *
+     * The moods only, and ten of them. A grid of forty-nine is a catalogue to scroll through
+     * before reaching anything, and the second grid — every genre YouTube Music has — is fifty
+     * alphabetical rows of a page that already has a search field on it: anything a listener can
+     * name they can type, and typing it lands on a better answer than a tile.
+     */
+    private const val MAX_MOODS = 10
+
+    /** The one group the grid shows. The other is fetched and then not drawn. */
+    private const val MOOD_GROUP = "Moods & moments"
+
+    /**
+     * The moods with no picture shipped for them, so they would open as a flat rectangle.
+     *
+     * Dropped rather than fetched: a grid is read at a glance and one tile without a picture among
+     * ten with them is the one that gets looked at, and a grid of nine is a grid of nine.
+     */
+    private val EXCLUDED = setOf("Feel good")
 
     /** How many playlists to keep from a category. One shelf's worth. */
     private const val MAX_PLAYLISTS = 18
@@ -114,6 +132,8 @@ object YtmShelves {
         }
 
         found
+            .filter { it.group == MOOD_GROUP && it.title !in EXCLUDED }
+            .take(MAX_MOODS)
     }.onFailure {
         Log.w(TAG, "categories failed: ${it.message}")
     }.getOrDefault(emptyList())
