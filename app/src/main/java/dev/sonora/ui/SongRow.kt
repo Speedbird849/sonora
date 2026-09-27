@@ -1,0 +1,340 @@
+package dev.sonora.ui
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import dev.sonora.backend.LibraryTrack
+import dev.sonora.ui.theme.accentText
+
+/**
+ * The row every list of tracks is drawn from.
+ *
+ * One row rather than one per screen, because the Library, a playlist, a search result and the
+ * player queue are all the same list of the same thing and any difference between them is a
+ * difference nobody asked for.
+ *
+ * The optional trailing slots are what let one row cover every case: a library row passes its
+ * like button and an overflow, a search row passes only the overflow, a numbered album tracklist
+ * passes a number instead of artwork, and the queue passes nothing at all. What none of them can
+ * change is the 52dp of artwork, the 14dp beside it and the two text styles — which is what keeps
+ * a list of mixed row types scannable as one column rather than as three.
+ */
+
+/** The leading square in a row, and the gap beside it. Two numbers, because they always agree. */
+private val ROW_ART = 52.dp
+
+private val ROW_GAP = 14.dp
+
+/** How far a swipe has to travel before it counts as "queue this", as a fraction of the row. */
+private const val SWIPE_COMMIT = 0.45f
+
+@Composable
+internal fun SongRow(
+    track: LibraryTrack,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
+    onSwipeToQueue: (() -> Unit)? = null,
+    /** Replaces the artwork with a position in a tracklist, for album and playlist listings. */
+    trackNumber: Int? = null,
+    /** The line under the title. Passed in because it differs: artist, or artist and file size. */
+    meta: String = listOfNotNull(track.artist, track.album).joinToString("  ·  "),
+    durationText: String? = null,
+    isCurrent: Boolean = false,
+    isPlaying: Boolean = false,
+    activeTint: Color = MaterialTheme.colorScheme.accentText,
+    subtitleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    /** Null hides the "already downloaded" mark, for lists where it would be noise. */
+    downloadedTint: Color? = MaterialTheme.colorScheme.accentText,
+) {
+    val tint = if (isCurrent) activeTint else MaterialTheme.colorScheme.onBackground
+    val background by animateColorAsState(
+        targetValue = if (isCurrent) activeTint.copy(alpha = 0.14f) else Color.Transparent,
+        label = "rowBackground",
+    )
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        // The swipe is drawn behind the row and revealed by the row moving off it, which is why the
+        // reveal is a clip of the row's own bounds rather than a second surface: anything drawn
+        // behind a moving row has to be clipped to it, or it shows at the row's edges.
+        if (onSwipeToQueue != null) {
+            QueueSwipeBackground()
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(background)
+                .rowClickable(onClick = onClick, onLongClick = onLongPress)
+                .swipeable(onSwipeToQueue)
+                .padding(horizontal = PAGE_GUTTER, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                trackNumber != null -> Box(
+                    modifier = Modifier.size(ROW_ART),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isCurrent) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Now playing",
+                            tint = activeTint,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    } else {
+                        Text(
+                            text = "$trackNumber",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = subtitleColor,
+                        )
+                    }
+                }
+
+                else -> ArtworkTile(track, ROW_ART)
+            }
+
+            Spacer(Modifier.width(ROW_GAP))
+
+            Column(Modifier.weight(1f)) {
+                ExplicitSongTitle(
+                    title = track.title,
+                    isExplicit = false,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tint,
+                )
+                Spacer(Modifier.size(2.dp))
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = subtitleColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            if (track.file != null && downloadedTint != null) {
+                Spacer(Modifier.width(8.dp))
+                DownloadedBadge(tint = downloadedTint)
+            }
+
+            if (isCurrent && trackNumber == null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Now playing",
+                    tint = activeTint,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+
+            if (durationText != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = durationText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = subtitleColor,
+                )
+            }
+
+            if (onMore != null) {
+                Spacer(Modifier.width(8.dp))
+                CircleGlyph(
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = "More",
+                    onClick = onMore,
+                )
+            }
+        }
+    }
+}
+
+/** The 52dp leading square: artwork when there is any, a note glyph when there is not. */
+@Composable
+private fun ArtworkTile(track: LibraryTrack, size: androidx.compose.ui.unit.Dp) {
+    val shape = RoundedCornerShape(CARD_CORNER)
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .thumbnailBorder(shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        val artwork = rememberTrackArtwork(track)
+        if (artwork != null) {
+            Image(
+                bitmap = artwork,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** What a swipe reveals: the two things a row can be dragged into the queue for. */
+@Composable
+private fun BoxScope.QueueSwipeBackground() {
+    Box(
+        modifier = Modifier
+            .matchParentSize()
+            .background(MaterialTheme.colorScheme.accentText.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = PAGE_GUTTER + 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.accentText,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "Queue",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.accentText,
+            )
+        }
+    }
+}
+
+/**
+ * Reports a horizontal drag as "queue this", once it has gone far enough.
+ *
+ * The threshold is a fraction of the row's own width rather than a fixed distance, so the gesture
+ * costs the same proportion of a swipe on a small phone as on a large one. A swipe that falls short
+ * springs back to nothing, because a row that stays half-moved reads as a row stuck in a state.
+ */
+@Composable
+private fun Modifier.swipeable(onSwipeToQueue: (() -> Unit)?): Modifier {
+    if (onSwipeToQueue == null) return this
+    val current by rememberUpdatedState(onSwipeToQueue)
+
+    return this.pointerInput(Unit) {
+        var total = 0f
+        var width = 1f
+        var fired = false
+
+        detectHorizontalDragGestures(
+            onDragStart = { total = 0f; fired = false },
+            onDragCancel = { total = 0f },
+            onDragEnd = {
+                if (!fired && total >= width * SWIPE_COMMIT) current()
+                total = 0f
+            },
+            onHorizontalDrag = { change, amount ->
+                change.consume()
+                total += amount
+                fired = true
+            },
+        )
+    }
+}
+
+/** A row with no artwork and no trailing controls, for lists that are all text. */
+@Composable
+internal fun BrowseRow(
+    title: String,
+    subtitle: String,
+    artwork: androidx.compose.ui.graphics.ImageBitmap?,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(CARD_CORNER),
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .rowClickable(onClick = onClick, onLongClick = onLongPress)
+            .padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(ROW_ART)
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .thumbnailBorder(shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (artwork != null) {
+                Image(
+                    bitmap = artwork,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        Spacer(Modifier.width(ROW_GAP))
+
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
