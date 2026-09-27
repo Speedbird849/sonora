@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -166,14 +167,16 @@ private val ACTION_EDGE_INSET: Dp = 28.dp
  */
 @Composable
 internal fun PlayerActionRow(
-    onFindLossless: () -> Unit,
+    lyricsOpen: Boolean,
+    onToggleLyrics: () -> Unit,
     queueOpen: Boolean,
     onToggleQueue: () -> Unit,
+    onFindLossless: () -> Unit,
     modifier: Modifier = Modifier,
     capsule: @Composable RowScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val rowWidth = ACTION_EDGE_INSET * 2 + ACTION_SIZE * 2 + 64.dp * 2
+        val rowWidth = ACTION_EDGE_INSET * 2 + ACTION_SIZE * 3 + 64.dp * 3
         val inset = ((maxWidth - rowWidth) / 2).coerceAtLeast(0.dp)
 
         Row(
@@ -184,13 +187,20 @@ internal fun PlayerActionRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ActionGlyph(
+                icon = Icons.Filled.Lyrics,
+                contentDescription = if (lyricsOpen) "Hide the lyrics" else "Show the lyrics",
+                active = lyricsOpen,
+                onClick = onToggleLyrics,
+            )
+
+            ActionCapsule { capsule() }
+
+            ActionGlyph(
                 icon = Icons.Filled.Search,
                 contentDescription = "Find a lossless copy",
                 active = false,
                 onClick = onFindLossless,
             )
-
-            ActionCapsule { capsule() }
 
             ActionGlyph(
                 icon = Icons.Filled.QueueMusic,

@@ -50,6 +50,9 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloatAsState
+import dev.sonora.lyrics.LyricsStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -102,7 +105,20 @@ fun NowPlayingScreen(
     // Said rather than acted on: being moved to a sign-in form from a tap inside a player, with
     // nothing said, is indistinguishable from the app having decided to sign you out.
     var connectPrompt by remember { mutableStateOf(false) }
+    // The words, over the sleeve. Held here rather than in the app so the pane and the artwork are
+    // two states of one thing and cannot disagree about which is showing.
+    var lyricsOpen by remember { mutableStateOf(false) }
+    val lyrics by LyricsStore.current.collectAsState()
     val track = playback.track ?: return
+
+// Asked for as the pane opens, not when the track starts: a request made for a track nobody is
+    // going to read the words of is a request for nothing.
+    LaunchedEffect(lyricsOpen, track.key, playback.durationMs) {
+        if (lyricsOpen) {
+            LyricsStore.request(track, playback.durationMs)
+        }
+    }
+
     // Non-null only while a finger is down on the bar. Held locally so the polled position cannot
     // drag the handle back out from under the drag.
     var scrubbing by remember(track.file) { mutableStateOf<Float?>(null) }
@@ -256,11 +272,51 @@ fun NowPlayingScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // The sleeve and the words, one over the other. Crossfaded rather than swapped, so
+            // turning the lyrics on is a change of what the screen is *about* rather than a redraw:
+            // a hard cut reads as a different page, and this is the same page about the same song.
+            val artAlpha by animateFloatAsState(
+                targetValue = if (lyricsOpen) 0f else 1f,
+                animationSpec = tween(340),
+                label = "artAlpha",
+            )
+            val wordsAlpha by animateFloatAsState(
+                targetValue = if (lyricsOpen) 1f else 0f,
+                animationSpec = tween(340),
+                label = "wordsAlpha",
+            )
+
+            // The same square the sleeve occupied, so the words take the cover's place rather than
+            // the cover's place *and* the room below it. A pane measured against the whole column
+            // pushes the transport off the bottom of the screen, which is where the thing that
+            // turns the lyrics off is.
+            if (wordsAlpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .graphicsLayer { alpha = wordsAlpha },
+                ) {
+                    LyricsPane(
+                        lyrics = lyrics,
+                        positionMs = playback.positionMs,
+                    )
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .graphicsLayer { translationX = artOffset.value }
+                    .graphicsLayer {
+                        alpha = artAlpha
+                        // The sleeve shrinks a little as the words take over, so the two are not
+                        // fighting for the same square.
+                        val scale = 1f - (1f - artAlpha) * 0.08f
+                        scaleX = scale
+                        scaleY = scale
+                    }
                     .draggable(
                         orientation = Orientation.Horizontal,
                         enabled = !isSwitching,
@@ -457,6 +513,12 @@ fun NowPlayingScreen(
             // playhead, they change what the playhead will meet, and putting them among the skip
             // buttons invites that confusion.
             PlayerActionRow(
+                lyricsOpen = lyricsOpen,
+                onToggleLyrics = {
+                    // The two panes are one screen, so opening one closes the other.
+                    lyricsOpen = !lyricsOpen
+                    if (lyricsOpen) queueOpen = false
+                },
                 onFindLossless = {
                     // Peers only, never YouTube: what is being asked for is a file that can be
                     // kept, and a stream above it would be the wrong answer to the same question.

@@ -84,6 +84,16 @@ object SonoraBackend {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * For work that outlives any one screen — a lyrics fetch, say, which must finish even though
+     * the listener closed the player while it was out.
+     *
+     * Its own scope rather than a composable's, because a request tied to a composition is
+     * cancelled the moment that composition leaves, and a listener who opens the player to read the
+     * words and swipes back has still asked for them.
+     */
+    val lyricsScope: CoroutineScope = scope
+
     private val _state = MutableStateFlow<BackendState>(BackendState.Idle)
 
     val state: StateFlow<BackendState> = _state.asStateFlow()
