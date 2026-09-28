@@ -511,9 +511,14 @@ private fun MainTabs(state: BackendState) {
         // artist line on the player. Held apart from the two names above because a name alone
         // cannot fetch an artist's songs, and following one is for the songs.
         var openPage by remember { mutableStateOf<PageRequest?>(null) }
-    // A playlist off one of YouTube Music's own shelves, as opposed to one in the library: no files
-    // behind it, so the library's playlist screen is the wrong shape for it.
-    val pages = remember { mutableStateListOf<ShelfPage>() }
+    // Shelf navigation stacks scoped to each tab so sub-pages never bleed into or block other tabs.
+    val homePages = remember { mutableStateListOf<ShelfPage>() }
+    val searchPages = remember { mutableStateListOf<ShelfPage>() }
+    val currentPages = when (tab) {
+        MainTab.Home -> homePages
+        MainTab.Search -> searchPages
+        else -> null
+    }
     val remotePlaylists by SonoraBackend.remotePlaylists.collectAsState()
     val shelves by SonoraBackend.shelves.collectAsState()
         val playback by SonoraPlayer.state.collectAsState()
@@ -563,8 +568,8 @@ private fun MainTabs(state: BackendState) {
             when (tab) {
                 MainTab.Home -> HomeScreen(
                         onImportSpotify = { spotifyImport = true },
-                        onOpenShelfPlaylist = { pages += ShelfPage.Playlist(it) },
-                        onOpenCategory = { pages += ShelfPage.Category(it) },
+                        onOpenShelfPlaylist = { homePages += ShelfPage.Playlist(it) },
+                        onOpenCategory = { homePages += ShelfPage.Category(it) },
                         onRunSearch = { term ->
                             // A suggestion on Home is really a pre-filled search, so this is
                             // the whole action: go to Search and run it.
@@ -582,8 +587,8 @@ private fun MainTabs(state: BackendState) {
                     onNeedPeers = { tab = MainTab.Network },
                     // The whole row, so the page opens with the cover the shelf was showing rather
                     // than a gap where it should be.
-                    onOpenPlaylist = { pages += ShelfPage.Playlist(it) },
-                    onOpenCategory = { pages += ShelfPage.Category(it) },
+                    onOpenPlaylist = { searchPages += ShelfPage.Playlist(it) },
+                    onOpenCategory = { searchPages += ShelfPage.Category(it) },
                     onOpenAlbum = { entity ->
                         openPage = PageRequest(
                             name = entity.title,
@@ -631,15 +636,15 @@ private fun MainTabs(state: BackendState) {
             }
         }
 
-        // The shelves' own pages, as one stack over the tab that opened them. A stack rather than
-        // two flags because a playlist opened from inside a category has to go back to the
-        // category: with flags it goes back to the tab, and the listener loses the thing they
-        // were looking at by pressing back once too often.
-        if (pages.isNotEmpty()) {
-            BackHandler(enabled = true) { pages.removeAt(pages.lastIndex) }
+        // The shelves' own pages, as one stack over the tab that opened them.
+        if (currentPages != null && currentPages.isNotEmpty()) {
+            BackHandler(enabled = true) { currentPages.removeAt(currentPages.lastIndex) }
+        } else if (tab != MainTab.Home) {
+            // Tapping system back on any secondary tab returns to Home before exiting.
+            BackHandler(enabled = true) { tab = MainTab.Home }
         }
 
-        when (val top = pages.lastOrNull()) {
+        when (val top = currentPages?.lastOrNull()) {
             is ShelfPage.Category -> {
                 val category = top.category
                 LaunchedEffect(category.title) { SonoraBackend.loadCategory(category) }
@@ -653,8 +658,8 @@ private fun MainTabs(state: BackendState) {
                     CategoryScreen(
                         category = category,
                         playlists = shelves.playlists[category.title].orEmpty(),
-                        onBack = { pages.removeAt(pages.lastIndex) },
-                        onOpen = { playlist -> pages += ShelfPage.Playlist(playlist) },
+                        onBack = { currentPages.removeAt(currentPages.lastIndex) },
+                        onOpen = { playlist -> currentPages += ShelfPage.Playlist(playlist) },
                     )
                 }
             }
@@ -676,7 +681,7 @@ private fun MainTabs(state: BackendState) {
                     RemotePlaylistScreen(
                         playlist = playlist,
                         tracks = remotePlaylists[playlist.browseId].orEmpty(),
-                        onBack = { pages.removeAt(pages.lastIndex) },
+                        onBack = { currentPages.removeAt(currentPages.lastIndex) },
                         onPlayFrom = { index ->
                             val queue = remotePlaylists[playlist.browseId].orEmpty()
                             if (index < queue.size) SonoraPlayer.play(context, queue, index)
@@ -725,18 +730,32 @@ private fun MainTabs(state: BackendState) {
                 selectedIndex = MainTab.entries.indexOf(tab),
                 onTabSelected = { index ->
                     val entry = MainTab.entries[index]
-                    // Tapping Search while already on it clears the search, which is also what
-                    // brings the recent queries back into view.
-                    if (tab == entry && entry == MainTab.Search) {
-                        SonoraBackend.clearSearch()
+                    if (tab == entry) {
+                        // Tapping the active tab resets it to root.
+                        when (entry) {
+                            MainTab.Home -> homePages.clear()
+                            MainTab.Search -> {
+                                if (searchPages.isNotEmpty()) {
+                                    searchPages.clear()
+                                } else {
+                                    SonoraBackend.clearSearch()
+                                }
+                            }
+                            MainTab.Library -> {
+                                openPlaylistId = null
+                                openArtistName = null
+                                openAlbumName = null
+                                openPage = null
+                            }
+                            else -> Unit
+                        }
                     } else {
-                        // Leaving the Library closes whatever it had open. That state used to live
-                        // inside it and reset this way, and holding it up here should not change
-                        // what the user sees.
+                        // Leaving a tab resets sub-views so coming back or switching tabs is clean.
                         if (entry != MainTab.Library) {
                             openPlaylistId = null
                             openArtistName = null
                             openAlbumName = null
+                            openPage = null
                         }
                         tab = entry
                     }
