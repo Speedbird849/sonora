@@ -133,14 +133,78 @@ fun NowPlayingScreen(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-    val dismissThresholdPx = with(density) { 100.dp.toPx() }
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val dismissThresholdPx = with(density) { 120.dp.toPx() }
     val switchThresholdPx = with(density) { 70.dp.toPx() }
 
-    var totalDragY by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val animOffsetY = remember { Animatable(0f) }
+    var isAnimating by remember { mutableStateOf(false) }
+    var isDismissing by remember { mutableStateOf(false) }
+    val sheetCornerShape = remember { RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp) }
+
+    val currentOffset = if (isAnimating) animOffsetY.value else dragOffsetY
+
     var totalDragX by remember { mutableFloatStateOf(0f) }
     val artOffset = remember { Animatable(0f) }
     var isSwitching by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    val verticalDragState = rememberDraggableState { delta ->
+        if (isDismissing) return@rememberDraggableState
+        if (isAnimating) {
+            dragOffsetY = animOffsetY.value
+            isAnimating = false
+        }
+        dragOffsetY = (dragOffsetY + delta).coerceIn(0f, screenHeightPx)
+    }
+
+    val onVerticalDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit = { velocity ->
+        if (!isDismissing) {
+            val offset = dragOffsetY
+        val shouldDismiss = (offset > dismissThresholdPx && velocity > -400f) || velocity > 800f
+        if (shouldDismiss) {
+            isDismissing = true
+            isAnimating = true
+            coroutineScope.launch {
+                try {
+                    animOffsetY.snapTo(offset)
+                    animOffsetY.animateTo(
+                        targetValue = screenHeightPx,
+                        initialVelocity = velocity.coerceAtLeast(0f),
+                        animationSpec = tween(
+                            durationMillis = 200,
+                            easing = FastOutLinearInEasing,
+                        ),
+                    )
+                } catch (_: Exception) {
+                } finally {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        onClose()
+                    }
+                }
+            }
+        } else {
+            isAnimating = true
+            coroutineScope.launch {
+                try {
+                    animOffsetY.snapTo(offset)
+                    animOffsetY.animateTo(
+                        targetValue = 0f,
+                        initialVelocity = velocity,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                } finally {
+                    dragOffsetY = 0f
+                    isAnimating = false
+                }
+            }
+        }
+    }
+    }
 
     fun animateNext() {
         if (isSwitching) return
@@ -181,7 +245,15 @@ fun NowPlayingScreen(
     }
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationY = currentOffset
+                if (currentOffset > 0f) {
+                    clip = true
+                    shape = sheetCornerShape
+                }
+            },
         color = MaterialTheme.colorScheme.background,
     ) {
         // The sleeve, blown up and blurred into the background.
@@ -224,20 +296,21 @@ fun NowPlayingScreen(
                 .padding(start = 24.dp, top = 4.dp, end = 24.dp, bottom = 24.dp)
                 .draggable(
                     orientation = Orientation.Vertical,
-                    state = rememberDraggableState { delta ->
-                        totalDragY += delta
-                    },
-                onDragStopped = { velocity ->
-                    if (totalDragY > dismissThresholdPx || velocity > 500f) {
-                        onClose()
-                    }
-                    totalDragY = 0f
-                },
-            ),
+                    enabled = !lyricsOpen,
+                    state = verticalDragState,
+                    onDragStopped = onVerticalDragStopped,
+                ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    enabled = lyricsOpen,
+                    state = verticalDragState,
+                    onDragStopped = onVerticalDragStopped,
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onClose) {
@@ -296,15 +369,6 @@ fun NowPlayingScreen(
                     .fillMaxWidth()
                     .aspectRatio(1f),
             ) {
-                if (wordsAlpha > 0f) {
-                    LyricsPane(
-                        lyrics = lyrics,
-                        positionMs = playback.positionMs,
-                        isPlaying = playback.isPlaying,
-                        modifier = Modifier.graphicsLayer { alpha = wordsAlpha },
-                    )
-                }
-
                 // A track that could not be fetched says so, in the place the picture would be, and
                 // offers the two things a listener can actually do about it. A spinner that never stops
                 // is worse than nothing: it says "working on it" for as long as it is on screen.
@@ -319,70 +383,82 @@ fun NowPlayingScreen(
                     )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { translationX = artOffset.value }
-                        .graphicsLayer {
-                            alpha = if (problem != null) 0f else artAlpha
-                            // The sleeve shrinks a little as the words take over, so the two are not
-                            // fighting for the same square.
-                            val scale = 1f - (1f - artAlpha) * 0.08f
-                            scaleX = scale
-                            scaleY = scale
-                        }
-                        .draggable(
-                            orientation = Orientation.Horizontal,
-                            enabled = !isSwitching,
-                            state = rememberDraggableState { delta ->
-                                totalDragX += delta
-                                coroutineScope.launch {
-                                    artOffset.snapTo(totalDragX)
-                                }
-                            },
-                            onDragStopped = { velocity ->
-                                if (totalDragX < -switchThresholdPx || velocity < -400f) {
-                                    animateNext()
-                                } else if (totalDragX > switchThresholdPx || velocity > 400f) {
-                                    animatePrevious()
-                                } else {
+                if (artAlpha > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationX = artOffset.value }
+                            .graphicsLayer {
+                                alpha = if (problem != null) 0f else artAlpha
+                                // The sleeve shrinks a little as the words take over, so the two are not
+                                // fighting for the same square.
+                                val scale = 1f - (1f - artAlpha) * 0.08f
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                            .draggable(
+                                orientation = Orientation.Horizontal,
+                                enabled = !isSwitching && !lyricsOpen,
+                                state = rememberDraggableState { delta ->
+                                    totalDragX += delta
                                     coroutineScope.launch {
-                                        artOffset.animateTo(
-                                            targetValue = 0f,
-                                            animationSpec = spring(
-                                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                                stiffness = Spring.StiffnessMedium,
-                                            ),
-                                        )
-                                        totalDragX = 0f
+                                        artOffset.snapTo(totalDragX)
                                     }
-                                }
-                            },
-                        )
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // Asked for at sleeve size rather than row size. The default is a thumbnail sized
-                    // for a list row, and stretching one of those over an artwork that fills the screen
-                    // is what makes a cover go soft — the pixels are simply not there, and no amount of
-                    // decoding more carefully would have found them.
-                    val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
-                    if (artwork != null) {
-                        Image(
-                            bitmap = artwork,
-                            contentDescription = "Album artwork",
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.MusicNote,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(72.dp),
-                        )
+                                },
+                                onDragStopped = { velocity ->
+                                    if (totalDragX < -switchThresholdPx || velocity < -400f) {
+                                        animateNext()
+                                    } else if (totalDragX > switchThresholdPx || velocity > 400f) {
+                                        animatePrevious()
+                                    } else {
+                                        coroutineScope.launch {
+                                            artOffset.animateTo(
+                                                targetValue = 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMedium,
+                                                ),
+                                            )
+                                            totalDragX = 0f
+                                        }
+                                    }
+                                },
+                            )
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // Asked for at sleeve size rather than row size. The default is a thumbnail sized
+                        // for a list row, and stretching one of those over an artwork that fills the screen
+                        // is what makes a cover go soft — the pixels are simply not there, and no amount of
+                        // decoding more carefully would have found them.
+                        val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
+                        if (artwork != null) {
+                            Image(
+                                bitmap = artwork,
+                                contentDescription = "Album artwork",
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(72.dp),
+                            )
+                        }
                     }
+                }
+
+                if (wordsAlpha > 0f) {
+                    LyricsPane(
+                        lyrics = lyrics,
+                        positionMs = playback.positionMs,
+                        isPlaying = playback.isPlaying,
+                        onSeek = { SonoraPlayer.seekTo(it) },
+                        modifier = Modifier.graphicsLayer { alpha = wordsAlpha },
+                    )
                 }
             }
 
