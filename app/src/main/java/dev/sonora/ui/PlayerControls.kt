@@ -18,13 +18,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.automirrored.rounded.VolumeDown
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.ui.res.painterResource
+import dev.sonora.R
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -244,7 +245,7 @@ internal fun TransportRow(
             iconSize = skipSize,
         ) {
             Icon(
-                imageVector = Icons.Filled.SkipPrevious,
+                painter = painterResource(R.drawable.ic_player_previous),
                 contentDescription = null,
                 modifier = Modifier.size(skipSize),
             )
@@ -257,7 +258,7 @@ internal fun TransportRow(
             iconSize = playSize,
         ) {
             Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                painter = painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
                 contentDescription = null,
                 modifier = Modifier.size(playSize),
             )
@@ -271,7 +272,7 @@ internal fun TransportRow(
             iconSize = skipSize,
         ) {
             Icon(
-                imageVector = Icons.Filled.SkipNext,
+                painter = painterResource(R.drawable.ic_player_next),
                 contentDescription = null,
                 modifier = Modifier.size(skipSize),
             )
@@ -291,27 +292,40 @@ private fun TransportButton(
     enabled: Boolean = true,
     glyph: @Composable () -> Unit,
 ) {
-    val alpha by androidx.compose.animation.core.animateFloatAsState(
+    val alpha by animateFloatAsState(
         targetValue = if (enabled) 1f else 0.3f,
         label = "transportAlpha",
+    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.86f else 1f,
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+        ),
+        label = "transportPress",
     )
 
     Box(
         modifier = Modifier
             .size(touchSize)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
+        val isSkip = touchSize == iconSize && contentDescription != "Play" && contentDescription != "Pause"
         Box(
             Modifier
                 .size(iconSize)
-                .then(
-                    if (touchSize == iconSize && contentDescription != "Play" && contentDescription != "Pause") {
-                        Modifier.graphicsLayerScaleY(SKIP_HEIGHT_SCALE)
-                    } else {
-                        Modifier
-                    },
-                ),
+                .graphicsLayer {
+                    scaleX = pressScale
+                    scaleY = pressScale * (if (isSkip) SKIP_HEIGHT_SCALE else 1f)
+                },
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.runtime.CompositionLocalProvider(
@@ -322,11 +336,6 @@ private fun TransportButton(
         }
     }
 }
-
-private fun Modifier.graphicsLayerScaleY(scale: Float): Modifier =
-    this.then(
-        Modifier.graphicsLayer { scaleY = scale },
-    )
 
 /** A volume slider with the same shape as the scrubber, so the two read as one control. */
 @Composable
@@ -340,7 +349,7 @@ internal fun VolumeRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.VolumeDown,
+            imageVector = Icons.AutoMirrored.Rounded.VolumeDown,
             contentDescription = null,
             tint = Color.White.copy(alpha = 0.5f),
             modifier = Modifier.size(20.dp),
@@ -355,7 +364,7 @@ internal fun VolumeRow(
         )
         Spacer(Modifier.width(10.dp))
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+            imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
             contentDescription = null,
             tint = Color.White.copy(alpha = 0.5f),
             modifier = Modifier.size(20.dp),

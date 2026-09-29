@@ -33,16 +33,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -180,151 +180,13 @@ private enum class MainTab(val label: String) {
 private val tabs: List<BottomTab> = MainTab.entries.map { BottomTab(it.label, it.icon()) }
 
 private fun MainTab.icon(): ImageVector = when (this) {
-    MainTab.Home -> Icons.Filled.Home
-    MainTab.Search -> Icons.Filled.Search
-    MainTab.Library -> Icons.AutoMirrored.Filled.List
-    MainTab.Settings -> Icons.Filled.Settings
-    MainTab.Network -> Icons.Filled.CloudDownload
+    MainTab.Home -> Icons.Rounded.Home
+    MainTab.Search -> Icons.Rounded.Search
+    MainTab.Library -> Icons.AutoMirrored.Rounded.List
+    MainTab.Settings -> Icons.Rounded.Settings
+    MainTab.Network -> Icons.Rounded.CloudDownload
 }
 
-/** Shown above the tabs whenever something is loaded, on either screen. */
-@Composable
-private fun NowPlayingBar(onOpen: () -> Unit) {
-    val playback by SonoraPlayer.state.collectAsState()
-    val track = playback.track ?: return
-    val density = LocalDensity.current
-    val skipThresholdPx = with(density) { 50.dp.toPx() }
-    val maxDragOffsetPx = with(density) { 12.dp.toPx() }
-    var totalDrag by remember { mutableFloatStateOf(0f) }
-    val dragOffset = remember { Animatable(0f) }
-    val coroutineScope = rememberCoroutineScope()
-
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { translationX = dragOffset.value }
-                    .draggable(
-                        orientation = Orientation.Horizontal,
-                        state = rememberDraggableState { delta ->
-                            totalDrag += delta
-                            val target = (totalDrag * 0.12f).coerceIn(-maxDragOffsetPx, maxDragOffsetPx)
-                            coroutineScope.launch {
-                                dragOffset.snapTo(target)
-                            }
-                        },
-                        onDragStopped = { velocity ->
-                            if (totalDrag < -skipThresholdPx || velocity < -500f) {
-                                SonoraPlayer.next()
-                            } else if (totalDrag > skipThresholdPx || velocity > 500f) {
-                                SonoraPlayer.previous()
-                            }
-                            totalDrag = 0f
-                            coroutineScope.launch {
-                                dragOffset.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                        stiffness = Spring.StiffnessMedium,
-                                    ),
-                                )
-                            }
-                        },
-                    )
-                    .clickable(onClick = onOpen)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val artwork = rememberTrackArtwork(track)
-                    if (artwork != null) {
-                        Image(
-                            bitmap = artwork,
-                            contentDescription = "Album artwork",
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.MusicNote,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 12.dp),
-                ) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    listOfNotNull(track.artist, track.album).joinToString(" \u00b7 ").let {
-                        if (it.isNotEmpty()) {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.previous() },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.togglePlayPause() },
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Icon(
-                        imageVector = if (playback.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playback.isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.accentText,
-                    )
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.next() },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "Next")
-                }
-            }
-
-            val progress = if (playback.durationMs > 0L) {
-                (playback.positionMs.toFloat() / playback.durationMs).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
-                color = MaterialTheme.colorScheme.accentText,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
-            }
-    }
-}
 
 @Composable
 private fun ConnectScreen(state: BackendState) {

@@ -2,6 +2,7 @@ package dev.sonora.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,19 +17,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,6 +60,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
@@ -141,7 +141,7 @@ fun NowPlayingScreen(
     val animOffsetY = remember { Animatable(0f) }
     var isAnimating by remember { mutableStateOf(false) }
     var isDismissing by remember { mutableStateOf(false) }
-    val sheetCornerShape = remember { RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp) }
+    val sheetCornerShape = remember { RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp) }
 
     val currentOffset = if (isAnimating) animOffsetY.value else dragOffsetY
 
@@ -300,40 +300,65 @@ fun NowPlayingScreen(
                     state = verticalDragState,
                     onDragStopped = onVerticalDragStopped,
                 ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .draggable(
-                    orientation = Orientation.Vertical,
-                    enabled = lyricsOpen,
-                    state = verticalDragState,
-                    onDragStopped = onVerticalDragStopped,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "Close player")
+            // Drag affordance handle at the top of the player sheet
+            Box(
+                modifier = Modifier
+                    .padding(top = 2.dp, bottom = 12.dp)
+                    .size(width = 36.dp, height = 4.5.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.32f)),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        enabled = lyricsOpen,
+                        state = verticalDragState,
+                        onDragStopped = onVerticalDragStopped,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircleGlyph(
+                    icon = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "Collapse player",
+                    onClick = onClose,
+                    size = 36.dp,
+                    glyphSize = 24.dp,
+                )
+
+                Text(
+                    text = "NOW PLAYING",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.2.sp,
+                    ),
+                    color = Color.White.copy(alpha = 0.65f),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    LikeGlyph(
+                        liked = isLiked,
+                        onClick = onToggleLike,
+                    )
+
+                    CircleGlyph(
+                        icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                        contentDescription = "Add to playlist",
+                        onClick = onAddToPlaylist,
+                        size = 34.dp,
+                        glyphSize = 19.dp,
+                    )
+                }
             }
-            Text(
-                text = "Now Playing",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.width(6.dp))
-
-            LikeGlyph(liked = isLiked, onClick = onToggleLike)
-
-            Spacer(Modifier.width(8.dp))
-
-            CircleGlyph(
-                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                contentDescription = "Add to playlist",
-                onClick = onAddToPlaylist,
-            )
-        }
 
         Column(
             modifier = Modifier
@@ -364,6 +389,8 @@ fun NowPlayingScreen(
             // the cover's place *and* the room below it. A pane measured against the whole column
             // pushes the transport off the bottom of the screen, which is where the thing that
             // turns the lyrics off is.
+            val artworkShape = remember { RoundedCornerShape(22.dp) }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -424,8 +451,14 @@ fun NowPlayingScreen(
                                     }
                                 },
                             )
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .shadow(elevation = 16.dp, shape = artworkShape, clip = false)
+                            .clip(artworkShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(
+                                width = 0.5.dp,
+                                color = Color.White.copy(alpha = 0.12f),
+                                shape = artworkShape,
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
                         // Asked for at sleeve size rather than row size. The default is a thumbnail sized
@@ -442,7 +475,7 @@ fun NowPlayingScreen(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Filled.MusicNote,
+                                imageVector = Icons.Rounded.MusicNote,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(72.dp),
@@ -465,14 +498,30 @@ fun NowPlayingScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 20.dp),
+                    .padding(top = 22.dp),
             ) {
+                val textShadow = remember {
+                    Shadow(
+                        color = Color.Black.copy(alpha = 0.45f),
+                        offset = Offset(0f, 1f),
+                        blurRadius = 4f,
+                    )
+                }
+
                 Text(
                     text = track.title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.4).sp,
+                        shadow = textShadow,
+                    ),
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+
+                Spacer(Modifier.height(4.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -484,40 +533,60 @@ fun NowPlayingScreen(
                         BlinkableText(
                             text = track.artist!!,
                             onClick = { onOpenArtist(track.artist) },
+                            shadow = textShadow,
                             modifier = Modifier.weight(1f, fill = false),
                         )
                         Text(
-                            text = "  ·  ",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = " · ",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Normal,
+                                shadow = textShadow,
+                            ),
+                            color = Color.White.copy(alpha = 0.55f),
                         )
                         BlinkableText(
                             text = track.album!!,
                             onClick = { onOpenAlbum(track.album) },
+                            shadow = textShadow,
                             modifier = Modifier.weight(1f, fill = false),
                         )
                     } else if (hasArtist) {
                         BlinkableText(
                             text = track.artist!!,
                             onClick = { onOpenArtist(track.artist) },
+                            shadow = textShadow,
                         )
                     } else if (hasAlbum) {
                         BlinkableText(
                             text = track.album!!,
                             onClick = { onOpenAlbum(track.album) },
+                            shadow = textShadow,
                         )
                     }
                 }
+
                 val quality = remember(track.file, duration) { AudioQuality.from(track.file, duration) }
                 if (quality.isNotBlank()) {
-                    Text(
-                        text = quality,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+                    val badgeShape = RoundedCornerShape(percent = 50)
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .clip(badgeShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.15f), badgeShape)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            text = quality.uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.6.sp,
+                            ),
+                            color = Color.White.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
 
@@ -539,50 +608,13 @@ fun NowPlayingScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Only the three transport buttons. Shuffle and repeat are not transport — they
-                // change what the playhead will meet rather than moving it — and they live in the
-                // capsule below. Two controls for one state is worse than one.
-                IconButton(
-                    onClick = { animatePrevious() },
-                    modifier = Modifier.size(64.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.SkipPrevious,
-                        contentDescription = "Previous",
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.togglePlayPause() },
-                    modifier = Modifier
-                        .size(88.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                ) {
-                    Icon(
-                        imageVector = if (playback.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playback.isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(42.dp),
-                    )
-                }
-                IconButton(
-                    onClick = { animateNext() },
-                    modifier = Modifier.size(64.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.SkipNext,
-                        contentDescription = "Next",
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
-            }
+            TransportRow(
+                isPlaying = playback.isPlaying,
+                onPrevious = { animatePrevious() },
+                onPlayPause = { SonoraPlayer.togglePlayPause() },
+                onNext = { animateNext() },
+                modifier = Modifier.padding(top = 18.dp),
+            )
 
             Spacer(Modifier.height(20.dp))
 
@@ -625,13 +657,13 @@ fun NowPlayingScreen(
             ) {
                 ActionCapsule {
                     CapsuleSegment(
-                        icon = Icons.Filled.Shuffle,
+                        icon = Icons.Rounded.Shuffle,
                         contentDescription = if (playback.isShuffled) "Turn shuffle off" else "Turn shuffle on",
                         onClick = onToggleShuffle,
                         active = playback.isShuffled,
                     )
                     CapsuleSegment(
-                        icon = Icons.Filled.AutoAwesome,
+                        icon = Icons.Rounded.AutoAwesome,
                         contentDescription = if (playback.autoplay) {
                             "Turn autoplay off"
                         } else {
@@ -642,9 +674,9 @@ fun NowPlayingScreen(
                     )
                     CapsuleSegment(
                         icon = if (playback.repeatMode == RepeatMode.One) {
-                            Icons.Filled.RepeatOne
+                            Icons.Rounded.RepeatOne
                         } else {
-                            Icons.Filled.Repeat
+                            Icons.Rounded.Repeat
                         },
                         contentDescription = when (playback.repeatMode) {
                             RepeatMode.Off -> "Turn repeat on"
@@ -672,16 +704,20 @@ private fun BlinkableText(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    shadow: Shadow? = null,
 ) {
     val coroutineScope = rememberCoroutineScope()
     val flash = remember { Animatable(0f) }
     var isBlinking by remember { mutableStateOf(false) }
-    val baseColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val currentColor = lerp(baseColor, MaterialTheme.colorScheme.onSurface, flash.value)
+    val baseColor = Color.White.copy(alpha = 0.72f)
+    val currentColor = lerp(baseColor, Color.White, flash.value)
 
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyLarge,
+        style = MaterialTheme.typography.bodyMedium.copy(
+            fontWeight = FontWeight.Medium,
+            shadow = shadow,
+        ),
         color = currentColor,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
