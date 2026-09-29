@@ -6,6 +6,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -296,26 +301,36 @@ private fun TransportButton(
         targetValue = if (enabled) 1f else 0.3f,
         label = "transportAlpha",
     )
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
+    var isPressed by remember { mutableStateOf(false) }
     val pressScale by animateFloatAsState(
         targetValue = if (isPressed) 0.86f else 1f,
         animationSpec = spring(
             dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessHigh,
         ),
         label = "transportPress",
     )
+    val currentOnClick by rememberUpdatedState(onClick)
 
     Box(
         modifier = Modifier
             .size(touchSize)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                onClick = onClick,
-            ),
+            .semantics {
+                role = Role.Button
+                this.contentDescription = contentDescription
+            }
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    val up = waitForUpOrCancellation()
+                    isPressed = false
+                    if (up != null) {
+                        currentOnClick()
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         val isSkip = touchSize == iconSize && contentDescription != "Play" && contentDescription != "Pause"
