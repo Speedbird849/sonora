@@ -14,21 +14,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import dev.sonora.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,7 +54,8 @@ import dev.sonora.ui.theme.accentText
  */
 private val GLYPH_SLOT = 40.dp
 
-private val GLYPH_SIZE = 32.dp
+private val PLAY_GLYPH_SIZE = 36.dp
+private val SKIP_GLYPH_SIZE = 22.dp
 
 /** The spinner that stands in for the play glyph, kept in proportion to it. */
 private val SPINNER_SIZE = 22.dp
@@ -220,9 +223,9 @@ internal fun MiniPlayer(
 
             TransportButton(onClick = onPrevious) {
                 Icon(
-                    imageVector = Icons.Filled.SkipPrevious,
+                    painter = painterResource(R.drawable.ic_player_previous),
                     contentDescription = "Previous",
-                    modifier = Modifier.size(GLYPH_SIZE),
+                    modifier = Modifier.size(SKIP_GLYPH_SIZE),
                 )
             }
 
@@ -243,18 +246,18 @@ internal fun MiniPlayer(
                     tint = MaterialTheme.colorScheme.accentText,
                 ) {
                     Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        painter = painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(GLYPH_SIZE),
+                        modifier = Modifier.size(PLAY_GLYPH_SIZE),
                     )
                 }
             }
 
             TransportButton(onClick = onNext) {
                 Icon(
-                    imageVector = Icons.Filled.SkipNext,
+                    painter = painterResource(R.drawable.ic_player_next),
                     contentDescription = "Next",
-                    modifier = Modifier.size(GLYPH_SIZE),
+                    modifier = Modifier.size(SKIP_GLYPH_SIZE),
                 )
             }
         }
@@ -267,11 +270,34 @@ private fun TransportButton(
     tint: Color = MaterialTheme.colorScheme.onBackground,
     glyph: @Composable () -> Unit,
 ) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(GLYPH_SLOT),
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.84f else 1f,
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+        ),
+        label = "miniTransportPress",
+    )
+
+    Box(
+        modifier = Modifier
+            .size(GLYPH_SLOT)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            },
+            contentAlignment = Alignment.Center,
+        ) {
             CompositionLocalProvider(LocalContentColor provides tint) {
                 glyph()
             }
