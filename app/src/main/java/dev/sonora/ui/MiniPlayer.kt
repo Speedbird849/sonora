@@ -4,6 +4,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import dev.sonora.R
@@ -270,25 +275,31 @@ private fun TransportButton(
     tint: Color = MaterialTheme.colorScheme.onBackground,
     glyph: @Composable () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
+    var isPressed by remember { mutableStateOf(false) }
     val pressScale by animateFloatAsState(
         targetValue = if (isPressed) 0.84f else 1f,
         animationSpec = spring(
             dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessHigh,
         ),
         label = "miniTransportPress",
     )
+    val currentOnClick by rememberUpdatedState(onClick)
 
     Box(
         modifier = Modifier
             .size(GLYPH_SLOT)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-            ),
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    val up = waitForUpOrCancellation()
+                    isPressed = false
+                    if (up != null) {
+                        currentOnClick()
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Box(
