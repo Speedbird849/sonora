@@ -1,5 +1,6 @@
 package dev.sonora.ui
 
+import dev.sonora.backend.LibraryTrack
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,7 +24,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,12 +36,19 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -91,7 +100,6 @@ fun NowPlayingScreen(
     onToggleLike: () -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
-    onToggleAutoplay: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onOpenArtist: (String) -> Unit = {},
     onOpenAlbum: (String) -> Unit = {},
@@ -103,9 +111,6 @@ fun NowPlayingScreen(
     // The queue is a panel over the player rather than a page, so it is state here and not a screen
     // the caller has to know about. A listener who opens it is still listening.
     var queueOpen by remember { mutableStateOf(false) }
-    // Said rather than acted on: being moved to a sign-in form from a tap inside a player, with
-    // nothing said, is indistinguishable from the app having decided to sign you out.
-    var connectPrompt by remember { mutableStateOf(false) }
     // The words, over the sleeve. Held here rather than in the app so the pane and the artwork are
     // two states of one thing and cannot disagree about which is showing.
     var lyricsOpen by remember { mutableStateOf(false) }
@@ -135,7 +140,39 @@ fun NowPlayingScreen(
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     val dismissThresholdPx = with(density) { 120.dp.toPx() }
-    val switchThresholdPx = with(density) { 70.dp.toPx() }
+    val artCardWidthPx = screenWidthPx - with(density) { 48.dp.toPx() }
+    val artGapPx = with(density) { 48.dp.toPx() }
+    val slideDistancePx = artCardWidthPx + artGapPx
+
+    var displayedTrack by remember(track.file) { mutableStateOf(track) }
+    var totalDragX by remember { mutableFloatStateOf(0f) }
+    val artOffset = remember { Animatable(0f) }
+    var isSwitching by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(track.key) {
+        displayedTrack = track
+        artOffset.snapTo(0f)
+        totalDragX = 0f
+        isSwitching = false
+    }
+
+    val queue = upNext.queue
+    val isRepeatAll = playback.repeatMode == RepeatMode.All
+    val currentIndex = queue.indexOfFirst { it.key == displayedTrack.key }
+        .let { if (it >= 0) it else upNext.index }
+    val hasNext = queue.size > 1 && (isRepeatAll || currentIndex < queue.size - 1)
+    val hasPrevious = queue.size > 1 && (isRepeatAll || currentIndex > 0)
+
+    val nextTrack = if (hasNext) {
+        val idx = (currentIndex + 1) % queue.size
+        queue.getOrNull(idx)
+    } else null
+
+    val previousTrack = if (hasPrevious) {
+        val idx = if (currentIndex - 1 < 0) queue.size - 1 else currentIndex - 1
+        queue.getOrNull(idx)
+    } else null
 
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val animOffsetY = remember { Animatable(0f) }
@@ -145,10 +182,11 @@ fun NowPlayingScreen(
 
     val currentOffset = if (isAnimating) animOffsetY.value else dragOffsetY
 
-    var totalDragX by remember { mutableFloatStateOf(0f) }
-    val artOffset = remember { Animatable(0f) }
-    var isSwitching by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
+    val dragFraction = if (slideDistancePx > 0f) {
+        (artOffset.value / slideDistancePx).coerceIn(-1f, 1f)
+    } else 0f
+    val nextBackdropAlpha = if (dragFraction < 0f && nextTrack != null) -dragFraction else 0f
+    val prevBackdropAlpha = if (dragFraction > 0f && previousTrack != null) dragFraction else 0f
 
     val verticalDragState = rememberDraggableState { delta ->
         if (isDismissing) return@rememberDraggableState
@@ -162,85 +200,210 @@ fun NowPlayingScreen(
     val onVerticalDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit = { velocity ->
         if (!isDismissing) {
             val offset = dragOffsetY
-        val shouldDismiss = (offset > dismissThresholdPx && velocity > -400f) || velocity > 800f
-        if (shouldDismiss) {
-            isDismissing = true
-            isAnimating = true
-            coroutineScope.launch {
-                try {
-                    animOffsetY.snapTo(offset)
-                    animOffsetY.animateTo(
-                        targetValue = screenHeightPx,
-                        initialVelocity = velocity.coerceAtLeast(0f),
-                        animationSpec = tween(
-                            durationMillis = 200,
-                            easing = FastOutLinearInEasing,
-                        ),
-                    )
-                } catch (_: Exception) {
-                } finally {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                        onClose()
+            val shouldDismiss = (offset > dismissThresholdPx && velocity > -400f) || velocity > 800f
+            if (shouldDismiss) {
+                isDismissing = true
+                isAnimating = true
+                coroutineScope.launch {
+                    try {
+                        animOffsetY.snapTo(offset)
+                        animOffsetY.animateTo(
+                            targetValue = screenHeightPx,
+                            initialVelocity = velocity.coerceAtLeast(0f),
+                            animationSpec = tween(
+                                durationMillis = 200,
+                                easing = FastOutLinearInEasing,
+                            ),
+                        )
+                    } catch (_: Exception) {
+                    } finally {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            onClose()
+                        }
                     }
                 }
-            }
-        } else {
-            isAnimating = true
-            coroutineScope.launch {
-                try {
-                    animOffsetY.snapTo(offset)
-                    animOffsetY.animateTo(
-                        targetValue = 0f,
-                        initialVelocity = velocity,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    )
-                } finally {
-                    dragOffsetY = 0f
-                    isAnimating = false
+            } else {
+                isAnimating = true
+                coroutineScope.launch {
+                    try {
+                        animOffsetY.snapTo(offset)
+                        animOffsetY.animateTo(
+                            targetValue = 0f,
+                            initialVelocity = velocity,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ),
+                        )
+                    } finally {
+                        dragOffsetY = 0f
+                        isAnimating = false
+                    }
                 }
             }
         }
     }
-    }
 
     fun animateNext() {
         if (isSwitching) return
+        val target = nextTrack
+        if (!hasNext || target == null) {
+            coroutineScope.launch {
+                artOffset.animateTo(-36f, animationSpec = tween(90))
+                artOffset.animateTo(
+                    0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                )
+            }
+            return
+        }
         isSwitching = true
         coroutineScope.launch {
             artOffset.animateTo(
-                targetValue = -screenWidthPx,
-                animationSpec = tween(180, easing = FastOutLinearInEasing),
+                targetValue = -slideDistancePx,
+                animationSpec = tween(220, easing = FastOutSlowInEasing),
             )
-            SonoraPlayer.next()
-            artOffset.snapTo(screenWidthPx)
-            artOffset.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(250, easing = FastOutSlowInEasing),
-            )
+            displayedTrack = target
+            artOffset.snapTo(0f)
             totalDragX = 0f
-            isSwitching = false
+            SonoraPlayer.next()
+            kotlinx.coroutines.delay(600)
+            if (isSwitching) {
+                displayedTrack = track
+                isSwitching = false
+            }
         }
     }
 
     fun animatePrevious() {
         if (isSwitching) return
+        val target = previousTrack
+        if (!hasPrevious || target == null) {
+            coroutineScope.launch {
+                artOffset.animateTo(36f, animationSpec = tween(90))
+                artOffset.animateTo(
+                    0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                )
+            }
+            return
+        }
         isSwitching = true
         coroutineScope.launch {
             artOffset.animateTo(
-                targetValue = screenWidthPx,
-                animationSpec = tween(180, easing = FastOutLinearInEasing),
+                targetValue = slideDistancePx,
+                animationSpec = tween(220, easing = FastOutSlowInEasing),
             )
-            SonoraPlayer.previous()
-            artOffset.snapTo(-screenWidthPx)
-            artOffset.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(250, easing = FastOutSlowInEasing),
-            )
+            displayedTrack = target
+            artOffset.snapTo(0f)
             totalDragX = 0f
-            isSwitching = false
+            SonoraPlayer.previous()
+            kotlinx.coroutines.delay(600)
+            if (isSwitching) {
+                displayedTrack = track
+                isSwitching = false
+            }
+        }
+    }
+
+    val horizontalDragState = rememberDraggableState { delta ->
+        val dampedDelta = when {
+            delta < 0 && (!hasNext || nextTrack == null) -> delta * 0.35f
+            delta > 0 && (!hasPrevious || previousTrack == null) -> delta * 0.35f
+            else -> delta
+        }
+        totalDragX += dampedDelta
+        coroutineScope.launch {
+            artOffset.snapTo(totalDragX)
+        }
+    }
+
+    val onHorizontalDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit = { velocity ->
+        val switchThreshold = slideDistancePx * 0.35f
+        if (totalDragX < -switchThreshold || velocity < -800f) {
+            val target = nextTrack
+            if (hasNext && target != null) {
+                isSwitching = true
+                coroutineScope.launch {
+                    artOffset.animateTo(
+                        targetValue = -slideDistancePx,
+                        initialVelocity = velocity,
+                        animationSpec = tween(180, easing = FastOutLinearInEasing),
+                    )
+                    displayedTrack = target
+                    artOffset.snapTo(0f)
+                    totalDragX = 0f
+                    SonoraPlayer.next()
+                    kotlinx.coroutines.delay(600)
+                    if (isSwitching) {
+                        displayedTrack = track
+                        isSwitching = false
+                    }
+                }
+            } else {
+                coroutineScope.launch {
+                    artOffset.animateTo(
+                        targetValue = 0f,
+                        initialVelocity = velocity,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMedium,
+                        ),
+                    )
+                    totalDragX = 0f
+                }
+            }
+        } else if (totalDragX > switchThreshold || velocity > 800f) {
+            val target = previousTrack
+            if (hasPrevious && target != null) {
+                isSwitching = true
+                coroutineScope.launch {
+                    artOffset.animateTo(
+                        targetValue = slideDistancePx,
+                        initialVelocity = velocity,
+                        animationSpec = tween(180, easing = FastOutLinearInEasing),
+                    )
+                    displayedTrack = target
+                    artOffset.snapTo(0f)
+                    totalDragX = 0f
+                    SonoraPlayer.previous()
+                    kotlinx.coroutines.delay(600)
+                    if (isSwitching) {
+                        displayedTrack = track
+                        isSwitching = false
+                    }
+                }
+            } else {
+                coroutineScope.launch {
+                    artOffset.animateTo(
+                        targetValue = 0f,
+                        initialVelocity = velocity,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMedium,
+                        ),
+                    )
+                    totalDragX = 0f
+                }
+            }
+        } else {
+            coroutineScope.launch {
+                artOffset.animateTo(
+                    targetValue = 0f,
+                    initialVelocity = velocity,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                )
+                totalDragX = 0f
+            }
         }
     }
 
@@ -256,47 +419,39 @@ fun NowPlayingScreen(
             },
         color = MaterialTheme.colorScheme.background,
     ) {
-        // The sleeve, blown up and blurred into the background.
-        //
-        // The one thing that makes a player look like it belongs to the music rather than to the
-        // phone: the whole screen takes its colour from the record, so a warm sleeve makes the
-        // controls look warm and a black one leaves them on plain black. Drawn from the same
-        // bitmap as the artwork above it, so there is nothing extra to fetch and no chance of the
-        // two disagreeing about what the record looks like.
-        ArtworkBackdrop(track = track)
+        ArtworkBackdrop(track = displayedTrack)
 
-        // Asked of the player itself, so the sheet belongs to the screen that raised it.
-        ConnectToPeersSheet(
-            open = connectPrompt,
-            onConnect = {
-                connectPrompt = false
-                onNeedPeers()
-            },
-            onDismiss = { connectPrompt = false },
+        // Blend in next track's backdrop during swipe left
+        if (nextTrack != null && nextBackdropAlpha > 0f) {
+            ArtworkBackdrop(
+                track = nextTrack,
+                modifier = Modifier.graphicsLayer { alpha = nextBackdropAlpha },
+            )
+        }
+
+        // Blend in previous track's backdrop during swipe right
+        if (previousTrack != null && prevBackdropAlpha > 0f) {
+            ArtworkBackdrop(
+                track = previousTrack,
+                modifier = Modifier.graphicsLayer { alpha = prevBackdropAlpha },
+            )
+        }
+
+        val playerControlsAlpha by animateFloatAsState(
+            targetValue = if (queueOpen) 0f else 1f,
+            animationSpec = tween(durationMillis = 200),
+            label = "playerControlsAlpha",
         )
 
-        if (queueOpen) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.94f)),
-            ) {
-                QueuePanel(
-                    upNext = upNext,
-                    onPlayFrom = { index -> SonoraPlayer.play(context, upNext.queue, index) },
-                    onRemove = { index -> SonoraPlayer.removeFromQueue(index) },
-                    onMove = { from, to -> SonoraPlayer.moveInQueue(from, to) },
-                    onClose = { queueOpen = false },
-                )
-            }
-        } else Column(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = playerControlsAlpha }
                 .statusBarsPadding()
                 .padding(start = 24.dp, top = 4.dp, end = 24.dp, bottom = 24.dp)
                 .draggable(
                     orientation = Orientation.Vertical,
-                    enabled = !lyricsOpen,
+                    enabled = !lyricsOpen && !queueOpen,
                     state = verticalDragState,
                     onDragStopped = onVerticalDragStopped,
                 ),
@@ -419,73 +574,61 @@ fun NowPlayingScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { translationX = artOffset.value }
-                            .graphicsLayer {
-                                alpha = if (problem != null) 0f else artAlpha
-                                // The sleeve shrinks a little as the words take over, so the two are not
-                                // fighting for the same square.
-                                val scale = 1f - (1f - artAlpha) * 0.08f
-                                scaleX = scale
-                                scaleY = scale
-                            }
                             .draggable(
                                 orientation = Orientation.Horizontal,
                                 enabled = !isSwitching && !lyricsOpen,
-                                state = rememberDraggableState { delta ->
-                                    totalDragX += delta
-                                    coroutineScope.launch {
-                                        artOffset.snapTo(totalDragX)
-                                    }
-                                },
-                                onDragStopped = { velocity ->
-                                    if (totalDragX < -switchThresholdPx || velocity < -400f) {
-                                        animateNext()
-                                    } else if (totalDragX > switchThresholdPx || velocity > 400f) {
-                                        animatePrevious()
-                                    } else {
-                                        coroutineScope.launch {
-                                            artOffset.animateTo(
-                                                targetValue = 0f,
-                                                animationSpec = spring(
-                                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                                    stiffness = Spring.StiffnessMedium,
-                                                ),
-                                            )
-                                            totalDragX = 0f
-                                        }
-                                    }
-                                },
-                            )
-                            .shadow(elevation = 16.dp, shape = artworkShape, clip = false)
-                            .clip(artworkShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .border(
-                                width = 0.5.dp,
-                                color = Color.White.copy(alpha = 0.12f),
-                                shape = artworkShape,
+                                state = horizontalDragState,
+                                onDragStopped = onHorizontalDragStopped,
                             ),
-                        contentAlignment = Alignment.Center,
                     ) {
-                        // Asked for at sleeve size rather than row size. The default is a thumbnail sized
-                        // for a list row, and stretching one of those over an artwork that fills the screen
-                        // is what makes a cover go soft — the pixels are simply not there, and no amount of
-                        // decoding more carefully would have found them.
-                        val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
-                        if (artwork != null) {
-                            Image(
-                                bitmap = artwork,
-                                contentDescription = "Album artwork",
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.MusicNote,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(72.dp),
+                        // Previous card (left)
+                        if (previousTrack != null) {
+                            ArtworkCard(
+                                track = previousTrack,
+                                artworkShape = artworkShape,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        translationX = artOffset.value - slideDistancePx
+                                        alpha = artAlpha
+                                        val scale = 1f - (1f - artAlpha) * 0.08f
+                                        scaleX = scale
+                                        scaleY = scale
+                                    },
                             )
                         }
+
+                        // Next card (right)
+                        if (nextTrack != null) {
+                            ArtworkCard(
+                                track = nextTrack,
+                                artworkShape = artworkShape,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        translationX = artOffset.value + slideDistancePx
+                                        alpha = artAlpha
+                                        val scale = 1f - (1f - artAlpha) * 0.08f
+                                        scaleX = scale
+                                        scaleY = scale
+                                    },
+                            )
+                        }
+
+                        // Current track card (center)
+                        ArtworkCard(
+                            track = displayedTrack,
+                            artworkShape = artworkShape,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = artOffset.value
+                                    alpha = if (problem != null) 0f else artAlpha
+                                    val scale = 1f - (1f - artAlpha) * 0.08f
+                                    scaleX = scale
+                                    scaleY = scale
+                                },
+                        )
                     }
                 }
 
@@ -645,20 +788,43 @@ fun NowPlayingScreen(
                 onToggleShuffle = onToggleShuffle,
                 repeatMode = playback.repeatMode,
                 onCycleRepeat = onCycleRepeat,
-                autoplay = playback.autoplay,
-                onToggleAutoplay = onToggleAutoplay,
-                onFindLossless = {
-                    val asked = SonoraBackend.searchPeers(
-                        context,
-                        SearchQueries.forTrack(track.title, track.artist.orEmpty()),
-                    )
-                    if (!asked) connectPrompt = true
-                },
                 queueOpen = queueOpen,
                 onToggleQueue = { queueOpen = !queueOpen },
                 modifier = Modifier.padding(horizontal = 24.dp),
             )
         }
+    }
+
+    AnimatedVisibility(
+        visible = queueOpen,
+        modifier = Modifier.fillMaxSize(),
+        enter = slideInVertically(
+            initialOffsetY = { fullHeight -> fullHeight },
+            animationSpec = tween(
+                durationMillis = 240,
+                easing = CubicBezierEasing(0.1f, 1f, 0.1f, 1f),
+            ),
+        ) + fadeIn(
+            animationSpec = tween(durationMillis = 180),
+        ),
+        exit = slideOutVertically(
+            targetOffsetY = { fullHeight -> fullHeight },
+            animationSpec = tween(
+                durationMillis = 200,
+                easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f),
+            ),
+        ) + fadeOut(
+            animationSpec = tween(durationMillis = 160),
+        ),
+    ) {
+        BackHandler { queueOpen = false }
+        QueuePanel(
+            upNext = upNext,
+            onPlayFrom = { index -> SonoraPlayer.play(context, upNext.queue, index) },
+            onRemove = { index -> SonoraPlayer.removeFromQueue(index) },
+            onMove = { from, to -> SonoraPlayer.moveInQueue(from, to) },
+            onClose = { queueOpen = false },
+        )
     }
 }
 }
@@ -704,5 +870,42 @@ private fun BlinkableText(
             }
         },
     )
+}
+
+@Composable
+private fun ArtworkCard(
+    track: LibraryTrack,
+    artworkShape: Shape,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .shadow(elevation = 16.dp, shape = artworkShape, clip = false)
+            .clip(artworkShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                width = 0.5.dp,
+                color = Color.White.copy(alpha = 0.12f),
+                shape = artworkShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
+        if (artwork != null) {
+            Image(
+                bitmap = artwork,
+                contentDescription = "Album artwork",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(72.dp),
+            )
+        }
+    }
 }
 

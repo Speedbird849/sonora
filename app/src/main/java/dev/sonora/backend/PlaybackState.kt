@@ -30,8 +30,6 @@ data class PlaybackState(
      * the sound when it is actually available.
      */
     val isResolving: Boolean = false,
-    /** Whether the queue keeps itself topped up when it runs out. */
-    val autoplay: Boolean = false,
     /**
      * Why this track is not playing, in a sentence.
      *
