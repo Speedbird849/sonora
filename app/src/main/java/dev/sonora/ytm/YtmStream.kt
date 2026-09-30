@@ -98,9 +98,6 @@ object YtmStream {
     private const val MAX_VERIFY_ATTEMPTS = 4
     private const val RETIRED_MS = 10L * 60L * 1000L
 
-    /** Off the cold-start path; the first tap on a track is rarely sooner. */
-    private const val WARM_DELAY_MS = 2_000L
-
     /** Players rotate every few days; only the newest are worth their megabytes. */
     private const val KEPT_PLAYERS = 3
 
@@ -222,7 +219,6 @@ object YtmStream {
             // player version. Kept across processes, so only the first launch after YouTube rotates
             // its player pays for it.
             cipherService.setPreprocessedPlayerCache(::readPlayer, ::writePlayer)
-            delay(WARM_DELAY_MS)
             warm()
         }
     }

@@ -33,16 +33,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -180,151 +180,13 @@ private enum class MainTab(val label: String) {
 private val tabs: List<BottomTab> = MainTab.entries.map { BottomTab(it.label, it.icon()) }
 
 private fun MainTab.icon(): ImageVector = when (this) {
-    MainTab.Home -> Icons.Filled.Home
-    MainTab.Search -> Icons.Filled.Search
-    MainTab.Library -> Icons.AutoMirrored.Filled.List
-    MainTab.Settings -> Icons.Filled.Settings
-    MainTab.Network -> Icons.Filled.CloudDownload
+    MainTab.Home -> Icons.Rounded.Home
+    MainTab.Search -> Icons.Rounded.Search
+    MainTab.Library -> Icons.AutoMirrored.Rounded.List
+    MainTab.Settings -> Icons.Rounded.Settings
+    MainTab.Network -> Icons.Rounded.CloudDownload
 }
 
-/** Shown above the tabs whenever something is loaded, on either screen. */
-@Composable
-private fun NowPlayingBar(onOpen: () -> Unit) {
-    val playback by SonoraPlayer.state.collectAsState()
-    val track = playback.track ?: return
-    val density = LocalDensity.current
-    val skipThresholdPx = with(density) { 50.dp.toPx() }
-    val maxDragOffsetPx = with(density) { 12.dp.toPx() }
-    var totalDrag by remember { mutableFloatStateOf(0f) }
-    val dragOffset = remember { Animatable(0f) }
-    val coroutineScope = rememberCoroutineScope()
-
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { translationX = dragOffset.value }
-                    .draggable(
-                        orientation = Orientation.Horizontal,
-                        state = rememberDraggableState { delta ->
-                            totalDrag += delta
-                            val target = (totalDrag * 0.12f).coerceIn(-maxDragOffsetPx, maxDragOffsetPx)
-                            coroutineScope.launch {
-                                dragOffset.snapTo(target)
-                            }
-                        },
-                        onDragStopped = { velocity ->
-                            if (totalDrag < -skipThresholdPx || velocity < -500f) {
-                                SonoraPlayer.next()
-                            } else if (totalDrag > skipThresholdPx || velocity > 500f) {
-                                SonoraPlayer.previous()
-                            }
-                            totalDrag = 0f
-                            coroutineScope.launch {
-                                dragOffset.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                        stiffness = Spring.StiffnessMedium,
-                                    ),
-                                )
-                            }
-                        },
-                    )
-                    .clickable(onClick = onOpen)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val artwork = rememberTrackArtwork(track)
-                    if (artwork != null) {
-                        Image(
-                            bitmap = artwork,
-                            contentDescription = "Album artwork",
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.MusicNote,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 12.dp),
-                ) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    listOfNotNull(track.artist, track.album).joinToString(" \u00b7 ").let {
-                        if (it.isNotEmpty()) {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.previous() },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.togglePlayPause() },
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Icon(
-                        imageVector = if (playback.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playback.isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.accentText,
-                    )
-                }
-                IconButton(
-                    onClick = { SonoraPlayer.next() },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "Next")
-                }
-            }
-
-            val progress = if (playback.durationMs > 0L) {
-                (playback.positionMs.toFloat() / playback.durationMs).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
-                color = MaterialTheme.colorScheme.accentText,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
-            }
-    }
-}
 
 @Composable
 private fun ConnectScreen(state: BackendState) {
@@ -511,9 +373,14 @@ private fun MainTabs(state: BackendState) {
         // artist line on the player. Held apart from the two names above because a name alone
         // cannot fetch an artist's songs, and following one is for the songs.
         var openPage by remember { mutableStateOf<PageRequest?>(null) }
-    // A playlist off one of YouTube Music's own shelves, as opposed to one in the library: no files
-    // behind it, so the library's playlist screen is the wrong shape for it.
-    val pages = remember { mutableStateListOf<ShelfPage>() }
+    // Shelf navigation stacks scoped to each tab so sub-pages never bleed into or block other tabs.
+    val homePages = remember { mutableStateListOf<ShelfPage>() }
+    val searchPages = remember { mutableStateListOf<ShelfPage>() }
+    val currentPages = when (tab) {
+        MainTab.Home -> homePages
+        MainTab.Search -> searchPages
+        else -> null
+    }
     val remotePlaylists by SonoraBackend.remotePlaylists.collectAsState()
     val shelves by SonoraBackend.shelves.collectAsState()
         val playback by SonoraPlayer.state.collectAsState()
@@ -563,8 +430,8 @@ private fun MainTabs(state: BackendState) {
             when (tab) {
                 MainTab.Home -> HomeScreen(
                         onImportSpotify = { spotifyImport = true },
-                        onOpenShelfPlaylist = { pages += ShelfPage.Playlist(it) },
-                        onOpenCategory = { pages += ShelfPage.Category(it) },
+                        onOpenShelfPlaylist = { homePages += ShelfPage.Playlist(it) },
+                        onOpenCategory = { homePages += ShelfPage.Category(it) },
                         onRunSearch = { term ->
                             // A suggestion on Home is really a pre-filled search, so this is
                             // the whole action: go to Search and run it.
@@ -582,8 +449,8 @@ private fun MainTabs(state: BackendState) {
                     onNeedPeers = { tab = MainTab.Network },
                     // The whole row, so the page opens with the cover the shelf was showing rather
                     // than a gap where it should be.
-                    onOpenPlaylist = { pages += ShelfPage.Playlist(it) },
-                    onOpenCategory = { pages += ShelfPage.Category(it) },
+                    onOpenPlaylist = { searchPages += ShelfPage.Playlist(it) },
+                    onOpenCategory = { searchPages += ShelfPage.Category(it) },
                     onOpenAlbum = { entity ->
                         openPage = PageRequest(
                             name = entity.title,
@@ -631,15 +498,15 @@ private fun MainTabs(state: BackendState) {
             }
         }
 
-        // The shelves' own pages, as one stack over the tab that opened them. A stack rather than
-        // two flags because a playlist opened from inside a category has to go back to the
-        // category: with flags it goes back to the tab, and the listener loses the thing they
-        // were looking at by pressing back once too often.
-        if (pages.isNotEmpty()) {
-            BackHandler(enabled = true) { pages.removeAt(pages.lastIndex) }
+        // The shelves' own pages, as one stack over the tab that opened them.
+        if (currentPages != null && currentPages.isNotEmpty()) {
+            BackHandler(enabled = true) { currentPages.removeAt(currentPages.lastIndex) }
+        } else if (tab != MainTab.Home) {
+            // Tapping system back on any secondary tab returns to Home before exiting.
+            BackHandler(enabled = true) { tab = MainTab.Home }
         }
 
-        when (val top = pages.lastOrNull()) {
+        when (val top = currentPages?.lastOrNull()) {
             is ShelfPage.Category -> {
                 val category = top.category
                 LaunchedEffect(category.title) { SonoraBackend.loadCategory(category) }
@@ -653,8 +520,8 @@ private fun MainTabs(state: BackendState) {
                     CategoryScreen(
                         category = category,
                         playlists = shelves.playlists[category.title].orEmpty(),
-                        onBack = { pages.removeAt(pages.lastIndex) },
-                        onOpen = { playlist -> pages += ShelfPage.Playlist(playlist) },
+                        onBack = { currentPages.removeAt(currentPages.lastIndex) },
+                        onOpen = { playlist -> currentPages += ShelfPage.Playlist(playlist) },
                     )
                 }
             }
@@ -676,7 +543,7 @@ private fun MainTabs(state: BackendState) {
                     RemotePlaylistScreen(
                         playlist = playlist,
                         tracks = remotePlaylists[playlist.browseId].orEmpty(),
-                        onBack = { pages.removeAt(pages.lastIndex) },
+                        onBack = { currentPages.removeAt(currentPages.lastIndex) },
                         onPlayFrom = { index ->
                             val queue = remotePlaylists[playlist.browseId].orEmpty()
                             if (index < queue.size) SonoraPlayer.play(context, queue, index)
@@ -725,18 +592,32 @@ private fun MainTabs(state: BackendState) {
                 selectedIndex = MainTab.entries.indexOf(tab),
                 onTabSelected = { index ->
                     val entry = MainTab.entries[index]
-                    // Tapping Search while already on it clears the search, which is also what
-                    // brings the recent queries back into view.
-                    if (tab == entry && entry == MainTab.Search) {
-                        SonoraBackend.clearSearch()
+                    if (tab == entry) {
+                        // Tapping the active tab resets it to root.
+                        when (entry) {
+                            MainTab.Home -> homePages.clear()
+                            MainTab.Search -> {
+                                if (searchPages.isNotEmpty()) {
+                                    searchPages.clear()
+                                } else {
+                                    SonoraBackend.clearSearch()
+                                }
+                            }
+                            MainTab.Library -> {
+                                openPlaylistId = null
+                                openArtistName = null
+                                openAlbumName = null
+                                openPage = null
+                            }
+                            else -> Unit
+                        }
                     } else {
-                        // Leaving the Library closes whatever it had open. That state used to live
-                        // inside it and reset this way, and holding it up here should not change
-                        // what the user sees.
+                        // Leaving a tab resets sub-views so coming back or switching tabs is clean.
                         if (entry != MainTab.Library) {
                             openPlaylistId = null
                             openArtistName = null
                             openAlbumName = null
+                            openPage = null
                         }
                         tab = entry
                     }

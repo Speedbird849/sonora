@@ -192,7 +192,7 @@ internal fun FloatingTabBar(
         modifier = modifier
             .navigationBarsPadding()
             .padding(horizontal = PAGE_GUTTER)
-            .padding(bottom = 2.dp)
+            .padding(bottom = 8.dp)
             .fillMaxWidth()
             .clip(pillShape)
             .optimizedHazeEffect(
