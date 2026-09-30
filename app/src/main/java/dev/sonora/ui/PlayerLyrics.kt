@@ -156,6 +156,25 @@ private fun scrollLead(lines: List<LyricLine>, positionMs: Long): Long {
     return gap.coerceIn(SCROLL_LEAD_MIN_MS, SCROLL_LEAD_MAX_MS)
 }
 
+/** Height of the spacer at the top of synced lyrics to keep the active line in slot 2. */
+private val PREV_LYRIC_SPACER_HEIGHT = 60.dp
+
+/**
+ * Returns the LazyColumn item index to scroll to so that [focusLine] appears as the
+ * second line displayed, with the previous line displayed in the first slot.
+ */
+internal fun previousVisibleItemIndex(lines: List<LyricLine>, focusLine: Int): Int {
+    if (focusLine <= 0 || focusLine !in lines.indices) return 0
+    var prev = focusLine - 1
+    while (prev > 0 && lines[prev].isGap) {
+        prev--
+    }
+    if (lines[prev].isGap) {
+        return 0
+    }
+    return prev + 1
+}
+
 /**
  * The lyrics pane displaying synced lines following the current playhead.
  *
@@ -208,9 +227,10 @@ internal fun LyricsPane(
         }
     }
 
-    val activeOnScreen by remember(listState, focusLine) {
+    val activeOnScreen by remember(listState, focusLine, isSynced) {
         derivedStateOf {
-            listState.layoutInfo.visibleItemsInfo.any { it.index == focusLine }
+            val targetIdx = if (isSynced) focusLine + 1 else focusLine
+            listState.layoutInfo.visibleItemsInfo.any { it.index == targetIdx }
         }
     }
 
@@ -243,10 +263,15 @@ internal fun LyricsPane(
 
     LaunchedEffect(focusLine, browsing) {
         if (!browsing && focusLine >= 0 && focusLine in lyrics.lines.indices) {
-            val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusLine }
+            val targetIndex = if (isSynced) {
+                previousVisibleItemIndex(lyrics.lines, focusLine)
+            } else {
+                focusLine
+            }
+            val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
             when {
                 !placed -> {
-                    listState.scrollToItem(focusLine, scrollOffset = 0)
+                    listState.scrollToItem(targetIndex, scrollOffset = 0)
                     placed = true
                 }
                 visible != null -> {
@@ -257,7 +282,7 @@ internal fun LyricsPane(
                         animationSpec = tween(durationMillis = span, easing = LYRIC_EASING),
                     )
                 }
-                else -> listState.animateScrollToItem(focusLine, scrollOffset = 0)
+                else -> listState.animateScrollToItem(targetIndex, scrollOffset = 0)
             }
         }
     }
@@ -310,6 +335,11 @@ internal fun LyricsPane(
                     ),
                     verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
+                    if (isSynced) {
+                        item(key = "top_spacer") {
+                            Spacer(Modifier.height(PREV_LYRIC_SPACER_HEIGHT))
+                        }
+                    }
                     itemsIndexed(lyrics.lines, key = { index, line -> "$index:${line.timeMs}" }) { index, line ->
                         if (line.isGap) {
                             val until = lyrics.lines.getOrNull(index + 1)?.timeMs ?: line.endMs
