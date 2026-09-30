@@ -713,7 +713,7 @@ fun NowPlayingScreen(
                     }
                 }
 
-                val quality = remember(track.file, duration) { AudioQuality.from(track.file, duration) }
+                val quality = remember(track.key, duration) { AudioQuality.from(track, duration) }
                 if (quality.isNotBlank()) {
                     val badgeShape = RoundedCornerShape(percent = 50)
                     Box(
@@ -725,7 +725,7 @@ fun NowPlayingScreen(
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Text(
-                            text = quality.uppercase(),
+                            text = if (quality == "YT Music") "YT Music" else quality.uppercase(),
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 0.6.sp,

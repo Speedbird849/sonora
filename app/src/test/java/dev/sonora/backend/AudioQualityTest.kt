@@ -79,4 +79,32 @@ class AudioQualityTest {
         val quality = AudioQuality.from(wavFile)
         assertEquals("WAV  ·  16-bit  ·  44.1 kHz", quality)
     }
+
+    @Test
+    fun `returns YT Music for remote streaming tracks and audio specs for local files`() {
+        val remoteTrack = LibraryTrack(
+            file = null,
+            title = "Starboy",
+            artist = "The Weeknd",
+            album = "Starboy",
+            size = 0L,
+            remote = dev.sonora.ytm.YtmTrack(
+                videoId = "d_HlPboLRL8",
+                title = "Starboy",
+                artist = "The Weeknd",
+                album = "Starboy",
+                artworkUrl = null,
+            ),
+        )
+        assertEquals("YT Music", AudioQuality.from(remoteTrack))
+
+        val localTrack = LibraryTrack(
+            file = null,
+            title = "Unknown",
+            artist = null,
+            album = null,
+            size = 0L,
+        )
+        assertEquals("", AudioQuality.from(localTrack))
+    }
 }
