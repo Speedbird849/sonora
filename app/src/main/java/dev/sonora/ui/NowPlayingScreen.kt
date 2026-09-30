@@ -311,7 +311,7 @@ fun NowPlayingScreen(
                     .background(Color.White.copy(alpha = 0.32f)),
             )
 
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .draggable(
@@ -320,14 +320,16 @@ fun NowPlayingScreen(
                         state = verticalDragState,
                         onDragStopped = onVerticalDragStopped,
                     ),
-                verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.Center,
             ) {
-                CircleGlyph(
+                SubIconButton(
                     icon = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = "Collapse player",
                     onClick = onClose,
-                    size = 36.dp,
+                    size = 40.dp,
                     glyphSize = 24.dp,
+                    idleTint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.align(Alignment.CenterStart),
                 )
 
                 Text(
@@ -337,25 +339,28 @@ fun NowPlayingScreen(
                         letterSpacing = 1.2.sp,
                     ),
                     color = Color.White.copy(alpha = 0.65f),
-                    modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
                 )
 
                 Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     LikeGlyph(
                         liked = isLiked,
                         onClick = onToggleLike,
+                        size = 40.dp,
+                        glyphSize = 22.dp,
                     )
 
-                    CircleGlyph(
+                    SubIconButton(
                         icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                         contentDescription = "Add to playlist",
                         onClick = onAddToPlaylist,
-                        size = 34.dp,
-                        glyphSize = 19.dp,
+                        size = 40.dp,
+                        glyphSize = 24.dp,
+                        idleTint = Color.White.copy(alpha = 0.8f),
                     )
                 }
             }
@@ -613,15 +618,13 @@ fun NowPlayingScreen(
                 onPrevious = { animatePrevious() },
                 onPlayPause = { SonoraPlayer.togglePlayPause() },
                 onNext = { animateNext() },
-                modifier = Modifier.padding(top = 18.dp),
+                modifier = Modifier.padding(top = 16.dp),
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
             // Volume, in the same thin shape as the scrubber and directly under it, so the two read
-            // as one control rather than as a pair. Asked for above the row of actions rather than
-            // tucked into one of its corners: it is the control a listener reaches for constantly
-            // and without looking, which means it has to be in the same place every time.
+            // as one control rather than as a pair.
             val (volume, onVolumeChange) = rememberDeviceVolume()
             VolumeRow(
                 volume = volume,
@@ -629,12 +632,8 @@ fun NowPlayingScreen(
                 modifier = Modifier.padding(horizontal = 24.dp),
             )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // The row under the transport: a disc at each end and the playback modes between them.
-            // Kept apart from the transport because they are not transport — nothing here moves the
-            // playhead, they change what the playhead will meet, and putting them among the skip
-            // buttons invites that confusion.
             PlayerActionRow(
                 lyricsOpen = lyricsOpen,
                 onToggleLyrics = {
@@ -642,9 +641,13 @@ fun NowPlayingScreen(
                     lyricsOpen = !lyricsOpen
                     if (lyricsOpen) queueOpen = false
                 },
+                isShuffled = playback.isShuffled,
+                onToggleShuffle = onToggleShuffle,
+                repeatMode = playback.repeatMode,
+                onCycleRepeat = onCycleRepeat,
+                autoplay = playback.autoplay,
+                onToggleAutoplay = onToggleAutoplay,
                 onFindLossless = {
-                    // Peers only, never YouTube: what is being asked for is a file that can be
-                    // kept, and a stream above it would be the wrong answer to the same question.
                     val asked = SonoraBackend.searchPeers(
                         context,
                         SearchQueries.forTrack(track.title, track.artist.orEmpty()),
@@ -654,41 +657,7 @@ fun NowPlayingScreen(
                 queueOpen = queueOpen,
                 onToggleQueue = { queueOpen = !queueOpen },
                 modifier = Modifier.padding(horizontal = 24.dp),
-            ) {
-                ActionCapsule {
-                    CapsuleSegment(
-                        icon = Icons.Rounded.Shuffle,
-                        contentDescription = if (playback.isShuffled) "Turn shuffle off" else "Turn shuffle on",
-                        onClick = onToggleShuffle,
-                        active = playback.isShuffled,
-                    )
-                    CapsuleSegment(
-                        icon = Icons.Rounded.AutoAwesome,
-                        contentDescription = if (playback.autoplay) {
-                            "Turn autoplay off"
-                        } else {
-                            "Turn autoplay on"
-                        },
-                        onClick = onToggleAutoplay,
-                        active = playback.autoplay,
-                    )
-                    CapsuleSegment(
-                        icon = if (playback.repeatMode == RepeatMode.One) {
-                            Icons.Rounded.RepeatOne
-                        } else {
-                            Icons.Rounded.Repeat
-                        },
-                        contentDescription = when (playback.repeatMode) {
-                            RepeatMode.Off -> "Turn repeat on"
-                            RepeatMode.All -> "Turn repeat-one on"
-                            RepeatMode.One -> "Turn repeat off"
-                        },
-                        onClick = onCycleRepeat,
-                        active = playback.repeatMode != RepeatMode.Off,
-                        showDivider = false,
-                    )
-                }
-            }
+            )
         }
     }
 }

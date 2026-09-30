@@ -2,139 +2,157 @@ package dev.sonora.ui
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lyrics
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.sonora.backend.RepeatMode
 
 /**
- * A control on the player: a glyph on a translucent disc.
- *
- * The disc is the point. A bare glyph floating over artwork has no edge of its own, so it belongs to
- * whatever happens to be behind it — legible on a dark sleeve, gone on a pale one, and it changes
- * with every track. A disc gives it a surface that does not move, and a hairline around the disc
- * gives it an edge. Twenty per cent white is enough to lift off a dark sleeve without turning into
- * a button on a light one; forty is for the state the listener has chosen.
+ * A tactile secondary icon button: bare glyph, no disc container, with spring push-down response
+ * and smooth active/idle tinting.
  */
-private val DISC_IDLE = 0.18f
-
-private val DISC_ACTIVE = 0.34f
-
 @Composable
-internal fun CircleGlyph(
+internal fun SubIconButton(
     icon: ImageVector,
-    contentDescription: String,
+    contentDescription: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 34.dp,
-    glyphSize: Dp = 19.dp,
     active: Boolean = false,
-    /** Overridden by [disc]; a list has no white on it to tint for. */
-    tint: Color? = null,
-    /**
-     * Whether the control sits on a translucent disc.
-     *
-     * On the player, yes, because it floats over artwork and needs a surface of its own to be
-     * legible against whatever the record looks like. In a list, no: the row already has a
-     * background, and a disc there is a grey blob on every line that competes with the artwork it
-     * sits beside. The target is 36dp either way, so a bare control is still a comfortable target.
-     */
-    disc: Boolean = true,
+    enabled: Boolean = true,
+    size: Dp = 40.dp,
+    glyphSize: Dp = 22.dp,
+    activeTint: Color = Color.White,
+    idleTint: Color = Color.White.copy(alpha = 0.55f),
 ) {
-    val fill by animateColorAsState(
-        targetValue = when {
-            !disc -> Color.Transparent
-            active -> Color.White.copy(alpha = DISC_ACTIVE)
-            else -> Color.White.copy(alpha = DISC_IDLE)
-        },
-        animationSpec = tween(180),
-        label = "glyphDisc",
+    var isPressed by remember { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.86f else 1f,
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessHigh,
+        ),
+        label = "subButtonPress",
     )
-
-    val ink = tint ?: if (disc) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    val tint by animateColorAsState(
+        targetValue = if (active) activeTint else idleTint,
+        animationSpec = tween(150),
+        label = "subButtonTint",
+    )
+    val currentOnClick by rememberUpdatedState(onClick)
 
     Box(
         modifier = modifier
             .size(size)
-            .clip(CircleShape)
-            .background(fill)
-            // No ripple: the disc already brightens, and a ripple on top of a state change is two
-            // answers to one tap.
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
+            .semantics {
+                role = Role.Button
+                if (contentDescription != null) {
+                    this.contentDescription = contentDescription
+                }
+            }
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    val up = waitForUpOrCancellation()
+                    isPressed = false
+                    if (up != null) {
+                        currentOnClick()
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
-        Crossfade(targetState = icon, animationSpec = tween(180), label = "glyphIcon") { shown ->
+        Box(
+            modifier = Modifier
+                .size(glyphSize)
+                .graphicsLayer {
+                    scaleX = pressScale
+                    scaleY = pressScale
+                },
+            contentAlignment = Alignment.Center,
+        ) {
             Icon(
-                imageVector = shown,
-                contentDescription = contentDescription,
-                tint = Color.White,
-                modifier = Modifier.size(glyphSize),
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
 }
 
-/** The like control, which fills when the track is liked and is dimmer when it is not. */
+/** The like control: bare heart icon that fills and turns bright white when liked. */
 @Composable
 internal fun LikeGlyph(
     liked: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    disc: Boolean = true,
-    tint: Color? = null,
+    size: Dp = 40.dp,
+    glyphSize: Dp = 22.dp,
 ) {
-    CircleGlyph(
-        icon = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-        contentDescription = if (liked) {
-            "Remove from Liked Songs"
-        } else {
-            "Add to Liked Songs"
-        },
+    SubIconButton(
+        icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+        contentDescription = if (liked) "Remove from Liked Songs" else "Add to Liked Songs",
         onClick = onClick,
         active = liked,
+        activeTint = Color.White,
         modifier = modifier,
-        disc = disc,
-        tint = tint,
+        size = size,
+        glyphSize = glyphSize,
     )
 }
 
@@ -143,186 +161,145 @@ internal fun LikeGlyph(
 internal fun MenuGlyph(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    glyphSize: Dp = 22.dp,
 ) {
-    CircleGlyph(
-        icon = Icons.Filled.MoreHoriz,
+    SubIconButton(
+        icon = Icons.Rounded.MoreHoriz,
         contentDescription = "More",
         onClick = onClick,
         modifier = modifier,
+        size = size,
+        glyphSize = glyphSize,
     )
 }
 
-/** The height of the row of discs under the transport. */
-private val ACTION_SIZE: Dp = 44.dp
-
-/** The glyph inside one of them. */
-private val ACTION_GLYPH: Dp = 26.dp
-
-/** How far the row is inset so its outer controls sit clear of the screen's edges. */
-private val ACTION_EDGE_INSET: Dp = 28.dp
-
-/**
- * The row the player ends on: a bare disc, the capsule, a bare disc.
- *
- * The two ends are bare and the middle is a capsule, which is what makes several controls read as
- * one object rather than as a row of unrelated buttons. The row is computed for the widest state
- * the capsule can be in, so a control moving in or out of it does not shift the ends sideways — the
- * middle is allowed to change, the ends are not.
- */
+/** Backwards-compatible glyph for lists/panels. */
 @Composable
-internal fun PlayerActionRow(
-    lyricsOpen: Boolean,
-    onToggleLyrics: () -> Unit,
-    queueOpen: Boolean,
-    onToggleQueue: () -> Unit,
-    onFindLossless: () -> Unit,
-    modifier: Modifier = Modifier,
-    capsule: @Composable RowScope.() -> Unit,
-) {
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val rowWidth = ACTION_EDGE_INSET * 2 + ACTION_SIZE * 3 + 64.dp * 3
-        val inset = ((maxWidth - rowWidth) / 2).coerceAtLeast(0.dp)
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = inset),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ActionGlyph(
-                icon = Icons.Filled.Lyrics,
-                contentDescription = if (lyricsOpen) "Hide the lyrics" else "Show the lyrics",
-                active = lyricsOpen,
-                onClick = onToggleLyrics,
-            )
-
-            ActionCapsule { capsule() }
-
-            ActionGlyph(
-                icon = Icons.Filled.Search,
-                contentDescription = "Find a lossless copy",
-                active = false,
-                onClick = onFindLossless,
-            )
-
-            ActionGlyph(
-                icon = Icons.Filled.QueueMusic,
-                contentDescription = "Up next",
-                active = queueOpen,
-                onClick = onToggleQueue,
-            )
-        }
-    }
-}
-
-/** One of the bare discs at the ends of the row. */
-@Composable
-private fun ActionGlyph(
+internal fun CircleGlyph(
     icon: ImageVector,
     contentDescription: String,
-    active: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    glyphSize: Dp = 22.dp,
+    active: Boolean = false,
+    tint: Color? = null,
+    disc: Boolean = false,
 ) {
-    val disc by animateColorAsState(
-        targetValue = Color.White.copy(alpha = if (active) 0.20f else 0f),
-        animationSpec = tween(180),
-        label = "actionDisc",
-    )
-
-    Box(
-        modifier = Modifier
-            .size(ACTION_SIZE)
-            .clip(CircleShape)
-            .background(disc)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
+    if (disc) {
+        val fill by animateColorAsState(
+            targetValue = if (active) Color.White.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.18f),
+            animationSpec = tween(180),
+            label = "glyphDisc",
+        )
+        Box(
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(fill),
+            contentAlignment = Alignment.Center,
+        ) {
+            SubIconButton(
+                icon = icon,
+                contentDescription = contentDescription,
                 onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
+                active = active,
+                size = size,
+                glyphSize = glyphSize,
+                activeTint = tint ?: Color.White,
+                idleTint = tint ?: Color.White,
+            )
+        }
+    } else {
+        SubIconButton(
+            icon = icon,
             contentDescription = contentDescription,
-            tint = Color.White.copy(alpha = if (active) 1f else 0.75f),
-            modifier = Modifier.size(ACTION_GLYPH),
+            onClick = onClick,
+            modifier = modifier,
+            active = active,
+            size = size,
+            glyphSize = glyphSize,
+            activeTint = tint ?: Color.White,
+            idleTint = tint ?: MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 /**
- * A capsule of two or three controls.
+ * Clean, balanced row of secondary playback controls under the volume slider:
+ * [Lyrics]   [Shuffle]   [Repeat]   [Autoplay]   [Lossless Search]   [Queue]
  *
- * Separated by a hairline rather than a gap. A gap between the segments would read as separate
- * buttons that happen to be near each other; a hairline reads as one control that is divided, which
- * is what it is — and it grows to fit rather than clipping, so adding a third control does not
- * squeeze the other two.
+ * Evenly distributed across the row with identical 40dp touch areas and 22dp rounded glyphs.
  */
 @Composable
-internal fun ActionCapsule(
+internal fun PlayerActionRow(
+    lyricsOpen: Boolean,
+    onToggleLyrics: () -> Unit,
+    isShuffled: Boolean,
+    onToggleShuffle: () -> Unit,
+    repeatMode: RepeatMode,
+    onCycleRepeat: () -> Unit,
+    autoplay: Boolean,
+    onToggleAutoplay: () -> Unit,
+    onFindLossless: () -> Unit,
+    queueOpen: Boolean,
+    onToggleQueue: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit,
 ) {
     Row(
-        modifier = modifier
-            .height(ACTION_SIZE)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.12f)),
-        verticalAlignment = Alignment.CenterVertically,
-        content = content,
-    )
-}
-
-/** One segment of a capsule: a square hit area in a round container, with a hairline after it. */
-@Composable
-internal fun CapsuleSegment(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    width: Dp = 64.dp,
-    active: Boolean = false,
-    showDivider: Boolean = true,
-) {
-    val tint by animateColorAsState(
-        targetValue = Color.White.copy(alpha = if (active) 1f else 0.75f),
-        animationSpec = tween(180),
-        label = "capsuleTint",
-    )
-
-    Row(
-        modifier = modifier
-            .height(ACTION_SIZE)
-            .width(width)
-            .background(if (active) Color.White.copy(alpha = 0.14f) else Color.Transparent)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = tint,
-                modifier = Modifier.size(24.dp),
-            )
-        }
+        SubIconButton(
+            icon = Icons.Rounded.Lyrics,
+            contentDescription = if (lyricsOpen) "Hide lyrics" else "Show lyrics",
+            active = lyricsOpen,
+            onClick = onToggleLyrics,
+        )
 
-        if (showDivider) {
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(ACTION_SIZE)
-                    .background(Color.White.copy(alpha = 0.20f)),
-            )
-        }
+        SubIconButton(
+            icon = Icons.Rounded.Shuffle,
+            contentDescription = if (isShuffled) "Turn shuffle off" else "Turn shuffle on",
+            active = isShuffled,
+            onClick = onToggleShuffle,
+        )
+
+        SubIconButton(
+            icon = when (repeatMode) {
+                RepeatMode.One -> Icons.Rounded.RepeatOne
+                else -> Icons.Rounded.Repeat
+            },
+            contentDescription = when (repeatMode) {
+                RepeatMode.Off -> "Turn repeat on"
+                RepeatMode.All -> "Turn repeat-one on"
+                RepeatMode.One -> "Turn repeat off"
+            },
+            active = repeatMode != RepeatMode.Off,
+            onClick = onCycleRepeat,
+        )
+
+        SubIconButton(
+            icon = Icons.Rounded.AutoAwesome,
+            contentDescription = if (autoplay) "Turn autoplay off" else "Turn autoplay on",
+            active = autoplay,
+            onClick = onToggleAutoplay,
+        )
+
+        SubIconButton(
+            icon = Icons.Rounded.Search,
+            contentDescription = "Find lossless copy",
+            active = false,
+            onClick = onFindLossless,
+        )
+
+        SubIconButton(
+            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+            contentDescription = if (queueOpen) "Close queue" else "Show queue",
+            active = queueOpen,
+            onClick = onToggleQueue,
+        )
     }
 }
 
