@@ -106,30 +106,8 @@ class LrcTest {
     fun `the sweep runs across the line where there is no word timing`() {
         val line = LyricLine(timeMs = 1_000, text = "sung over five seconds", endMs = 6_000)
 
-        assertEquals(0f, line.sungFraction(500, null), 0.001f)
-        assertEquals(0.5f, line.sungFraction(3_500, null), 0.001f)
-        assertEquals(1f, line.sungFraction(9_000, null), 0.001f)
-    }
-
-    @Test
-    fun `a line with no end of its own is swept up to the next line`() {
-        val line = LyricLine(timeMs = 1_000, text = "sung over five seconds")
-
-        assertEquals(0.4f, line.sungFraction(3_000, nextStartMs = 6_000), 0.001f)
-        assertEquals(1f, line.sungFraction(6_000, nextStartMs = 6_000), 0.001f)
-    }
-
-    @Test
-    fun `the bloom is only on the word being sung`() {
-        val line = LyricLine(
-            timeMs = 0,
-            text = "one two",
-            words = listOf(LyricWord(0, 1_000, "one"), LyricWord(1_000, 2_000, "two")),
-        )
-
-        assertEquals(listOf(0 to 0.5f), line.growingWords(500))
-        assertEquals(listOf(0 to 1f, 1 to 0.5f), line.growingWords(1_500).map { it.first to it.second })
-        assertTrue(line.growingWords(2_500).none { it.second < 1f })
+        assertEquals(0f, line.revealedChars(500), 0.001f)
+        assertEquals(line.text.length.toFloat(), line.revealedChars(1_000), 0.001f)
     }
 
     @Test
@@ -140,6 +118,6 @@ class LrcTest {
             words = listOf(LyricWord(500, 1_500, "one")),
         )
 
-        assertEquals(0f, line.sungFraction(0, null), 0.001f)
+        assertEquals(0f, line.revealedChars(0), 0.001f)
     }
 }
