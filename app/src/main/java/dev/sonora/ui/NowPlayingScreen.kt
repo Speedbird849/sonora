@@ -117,7 +117,7 @@ fun NowPlayingScreen(
     val lyrics by LyricsStore.current.collectAsState()
     val track = playback.track ?: return
 
-// Asked for as the pane opens, not when the track starts: a request made for a track nobody is
+    // Asked for as the pane opens, not when the track starts: a request made for a track nobody is
     // going to read the words of is a request for nothing.
     LaunchedEffect(lyricsOpen, track.key, playback.durationMs) {
         if (lyricsOpen) {

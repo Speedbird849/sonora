@@ -26,17 +26,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,7 +61,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import dev.sonora.backend.DownloadState
 import dev.sonora.backend.SearchHit
-import dev.sonora.backend.SearchFolders
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.SearchQueries
 import dev.sonora.ytm.YtmCategory
@@ -142,10 +137,9 @@ fun SearchScreen(
     // question. Read here rather than remembered so it survives leaving the tab.
     val recentTracks by SonoraBackend.recentTracks.collectAsState()
 
-    // Either source can be turned off. The search itself still asks both: each source's answer is
-    // held, and switching back should not mean waiting for it again.
-    val showSoulseek = SearchSource.SOULSEEK in sources
-    val showYoutube = SearchSource.YOUTUBE_MUSIC in sources
+    var selectedTab by remember { mutableStateOf(SearchSource.YOUTUBE_MUSIC) }
+    val showSoulseek = selectedTab == SearchSource.SOULSEEK
+    val showYoutube = selectedTab == SearchSource.YOUTUBE_MUSIC
 
     // The top result's second button, and the flow it opens. Held here rather than inside the
     // card: a sheet's host has to outlive the item that summoned it, or it is dismissed the moment
@@ -248,28 +242,28 @@ fun SearchScreen(
             onFocusChange = { fieldFocused = it },
         )
 
-        // Ordering only means anything for the peer results, so it is offered only when those are
-        // the ones on show.
-        if (showSoulseek && (searchState.hits.isNotEmpty() || searchState.searching)) {
+        if (!showingHistory) {
+            ChoicePillRow {
+                ChoicePill(
+                    label = "YouTube Music",
+                    selected = selectedTab == SearchSource.YOUTUBE_MUSIC,
+                    onClick = { selectedTab = SearchSource.YOUTUBE_MUSIC },
+                )
+                ChoicePill(
+                    label = "Soulseek",
+                    selected = selectedTab == SearchSource.SOULSEEK,
+                    onClick = { selectedTab = SearchSource.SOULSEEK },
+                )
+            }
+        }
+
+        if (showSoulseek && !showingHistory && (searchState.hits.isNotEmpty() || searchState.searching)) {
             ChoicePillRow {
                 SortMode.entries.forEach { mode ->
                     ChoicePill(
                         label = mode.label,
                         selected = sort == mode,
                         onClick = { onSort(mode) },
-                    )
-                }
-            }
-        }
-
-        if (entities.albums.isNotEmpty() || entities.artists.isNotEmpty() || searchState.hits.isNotEmpty() ||
-            searchState.youtube.isNotEmpty() || searchState.searching || searchState.youtubeLoading) {
-            ChoicePillRow {
-                SearchSource.entries.forEach { source ->
-                    ChoicePill(
-                        label = source.label,
-                        selected = source in sources,
-                        onClick = { SonoraBackend.setSearchSource(source, source !in sources) },
                     )
                 }
             }
@@ -484,20 +478,28 @@ fun SearchScreen(
                 }
 
                 if (showSoulseek) {
+                    if (searchState.hits.isNotEmpty()) {
+                        item(key = "soulseek-instruction") {
+                            Text(
+                                text = "Tap any song to download",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(
+                                    horizontal = PAGE_GUTTER,
+                                    vertical = 6.dp,
+                                ),
+                            )
+                        }
+                    }
                     items(searchState.hits, key = { it.peer + it.filename }) { hit ->
                         ResultRow(
                             hit = hit,
-                            folderSize = SearchFolders.folderOf(searchState.hits, hit).size,
                             onDownload = { startDownload(hit) },
-                            onDownloadFolder = {
-                                SearchFolders.folderOf(searchState.hits, hit)
-                                    .forEach { startDownload(it) }
-                            },
                         )
                         HorizontalDivider(
-                            modifier = Modifier.padding(start = ROW_DIVIDER_INSET),
+                            modifier = Modifier.padding(horizontal = PAGE_GUTTER),
                             thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outline,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                         )
                     }
                 }
@@ -635,70 +637,70 @@ private fun Note(text: String) {
 @Composable
 private fun ResultRow(
     hit: SearchHit,
-    folderSize: Int,
     onDownload: () -> Unit,
-    onDownloadFolder: () -> Unit,
 ) {
+    val cleanPath = hit.filename.replace('/', '\\')
+    val rawExtension = cleanPath.substringAfterLast('.', "")
+    val filetype = if (rawExtension.length in 2..5 && rawExtension.all { it.isLetterOrDigit() }) {
+        rawExtension.uppercase()
+    } else {
+        "AUDIO"
+    }
+
+    val fileName = cleanPath.substringAfterLast('\\')
+    val title = if (fileName.contains('.')) fileName.substringBeforeLast('.') else fileName
+    val parentFolder = cleanPath.substringBeforeLast('\\', "").substringAfterLast('\\').takeIf { it.isNotBlank() }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onDownload)
-            .padding(horizontal = PAGE_GUTTER, vertical = 7.dp),
+            .padding(horizontal = PAGE_GUTTER, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Remote files carry no artwork — the search response has no such field — so this is a
-        // deliberate placeholder rather than a missing image.
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = hit.filename.substringAfterLast('\\'),
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = filetype,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    // Size is deliberately not part of this line: it was being truncated away
-                    // behind the peer name, and it decides whether a download is worth starting.
-                    text = listOfNotNull(hit.peer, quality(hit).ifEmpty { null })
-                        .joinToString("  \u00b7  "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = formatSize(hit.size),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
             }
 
+            val details = listOfNotNull(
+                parentFolder,
+                quality(hit).ifEmpty { null },
+                formatSize(hit.size),
+                hit.peer,
+            ).joinToString("  \u00b7  ")
+
             Text(
-                text = hit.filename.substringBeforeLast('\\', ""),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceFaint,
+                text = details,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -706,13 +708,15 @@ private fun ResultRow(
 
         Column(
             horizontalAlignment = Alignment.End,
-            modifier = Modifier.padding(end = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(start = 12.dp),
         ) {
             Text(
                 text = if (hit.hasFreeUploadSlot) "Ready" else "Queued ${hit.queueLength}",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
                 color = if (hit.hasFreeUploadSlot) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.error
                 },
@@ -725,48 +729,6 @@ private fun ResultRow(
                     color = MaterialTheme.colorScheme.onSurfaceFaint,
                     maxLines = 1,
                 )
-            }
-        }
-
-        IconButton(onClick = onDownload) {
-            Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = "Download",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        // Bulk download sits behind a menu: it acts on other results too, so it should not look
-        // like the button that fetches this one.
-        var menuOpen by remember { mutableStateOf(false) }
-
-        Box {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "Result options",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Download this file") },
-                    onClick = {
-                        menuOpen = false
-                        onDownload()
-                    },
-                )
-
-                if (folderSize > 1) {
-                    DropdownMenuItem(
-                        text = { Text("Download folder ($folderSize files)") },
-                        onClick = {
-                            menuOpen = false
-                            onDownloadFolder()
-                        },
-                    )
-                }
             }
         }
     }
