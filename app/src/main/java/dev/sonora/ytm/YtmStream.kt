@@ -23,9 +23,7 @@ import dev.sonora.playback.StreamRanges
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -101,8 +99,6 @@ object YtmStream {
     private const val RETIRED_MS = 10L * 60L * 1000L
 
     private const val KEY_VISITOR_DATA = "visitor_data"
-    /** Off the cold-start path; the first tap on a track is rarely sooner. */
-    private const val WARM_DELAY_MS = 3_000L
     private const val DEFAULT_VISITOR_DATA =
         "CgtyUlRHRUlWSnU2dyip0oLWBjIKCgJJThIEGgAgLGLfAgrcAjIyLllUPVdGMHBjYmxnOTBmWEg3b1RuQTIySXk2TXEwb2RDQjVDajlFYzk1dWl1eU5ScEY0SjdCYVFuSnV1MXF4OUJfU3pEMUwwTGR1Nmd1VVhxRkNqSEQ0Y09Gb3VSZ0g2QU93b2RwTHAxUXVFUVJZQ1QyREsxUEp4RDA1empxaWdwekQ3d3ZPRk04ZkREUVVxWl81QlNsczNUQ0lnZUhMRjhNZEM4Nlk0VmhJY1NTTVVuM1lacS1aOGoySDhSTlpzV3RQOS10azJIemhPejN0ekFVVDVEZEJXd0ZjMGhnV0NEUUJDdlV6cHJ6MlJKNjJiOVVENWx4endYSHpZQXQ5SFhBQmRqUTRXV29GQVFVMWR2QWRHcFJpMk1CSVFOSmwtT1JvMFIwV1ExV1dXZURYR1hKOTlaVWI1eWpDNzdlTXFhalNSYncxMUM2bUE4YTFCbDJHb1NWejUxQQ%3D%3D"
 
@@ -120,7 +116,6 @@ object YtmStream {
     private var repository: PlayerConfigRepository? = null
     private var prefs: SharedPreferences? = null
     private var playerDir: File? = null
-    private var warmupJob: Job? = null
 
     /**
      * The player-config cache, or a failure that says what is wrong.
@@ -232,24 +227,6 @@ object YtmStream {
             // player version. Kept across processes, so only the first launch after YouTube rotates
             // its player pays for it.
             cipherService.setPreprocessedPlayerCache(::readPlayer, ::writePlayer)
-            warm(WARM_DELAY_MS)
-        }
-    }
-
-    private fun warm(delayMs: Long) {
-        warmupJob?.cancel()
-        warmupJob = scope.launch {
-            delay(delayMs)
-            val start = SystemClock.elapsedRealtime()
-            runCatching {
-                extractor.prewarm()
-                innerTube.visitorData?.takeIf { it.isNotBlank() }?.let {
-                    prefs?.edit()?.putString(KEY_VISITOR_DATA, it)?.apply()
-                }
-            }
-                .onFailure { if (it is CancellationException) throw it }
-                .onFailure { Log.w(TAG, "warm-up failed: ${it.message}") }
-                .onSuccess { Log.d(TAG, "warmed in ${SystemClock.elapsedRealtime() - start}ms") }
         }
     }
 
@@ -279,7 +256,6 @@ object YtmStream {
      *   looks like from here.
      */
     suspend fun resolve(videoId: String, maxKbps: Int = 0): YtmAudio? = withContext(Dispatchers.IO) {
-        warmupJob?.cancel()
         repeat(MAX_VERIFY_ATTEMPTS) {
             val audio = resolveOnce(videoId, maxKbps) ?: return@withContext null
             if (verify(audio) == Probe.OK) return@withContext audio
