@@ -1,6 +1,7 @@
 package dev.sonora.ytm
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.SystemClock
 import android.util.Log
 import com.metrolist.innertubex.InnerTube
@@ -22,6 +23,7 @@ import dev.sonora.playback.StreamRanges
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -98,6 +100,12 @@ object YtmStream {
     private const val MAX_VERIFY_ATTEMPTS = 4
     private const val RETIRED_MS = 10L * 60L * 1000L
 
+    private const val KEY_VISITOR_DATA = "visitor_data"
+    /** Off the cold-start path; the first tap on a track is rarely sooner. */
+    private const val WARM_DELAY_MS = 3_000L
+    private const val DEFAULT_VISITOR_DATA =
+        "CgtyUlRHRUlWSnU2dyip0oLWBjIKCgJJThIEGgAgLGLfAgrcAjIyLllUPVdGMHBjYmxnOTBmWEg3b1RuQTIySXk2TXEwb2RDQjVDajlFYzk1dWl1eU5ScEY0SjdCYVFuSnV1MXF4OUJfU3pEMUwwTGR1Nmd1VVhxRkNqSEQ0Y09Gb3VSZ0g2QU93b2RwTHAxUXVFUVJZQ1QyREsxUEp4RDA1empxaWdwekQ3d3ZPRk04ZkREUVVxWl81QlNsczNUQ0lnZUhMRjhNZEM4Nlk0VmhJY1NTTVVuM1lacS1aOGoySDhSTlpzV3RQOS10azJIemhPejN0ekFVVDVEZEJXd0ZjMGhnV0NEUUJDdlV6cHJ6MlJKNjJiOVVENWx4endYSHpZQXQ5SFhBQmRqUTRXV29GQVFVMWR2QWRHcFJpMk1CSVFOSmwtT1JvMFIwV1ExV1dXZURYR1hKOTlaVWI1eWpDNzdlTXFhalNSYncxMUM2bUE4YTFCbDJHb1NWejUxQQ%3D%3D"
+
     /** Players rotate every few days; only the newest are worth their megabytes. */
     private const val KEPT_PLAYERS = 3
 
@@ -110,7 +118,9 @@ object YtmStream {
     private val retired = ConcurrentHashMap<String, ConcurrentHashMap<String, Long>>()
 
     private var repository: PlayerConfigRepository? = null
+    private var prefs: SharedPreferences? = null
     private var playerDir: File? = null
+    private var warmupJob: Job? = null
 
     /**
      * The player-config cache, or a failure that says what is wrong.
@@ -194,41 +204,53 @@ object YtmStream {
         if (repository != null) return
 
         val app = context.applicationContext
-        val prefs = app.getSharedPreferences("ytm_player_config", Context.MODE_PRIVATE)
+        val preferences = app.getSharedPreferences("ytm_player_config", Context.MODE_PRIVATE)
+        prefs = preferences
         repository = object : PlayerConfigRepository {
             override val enabled: Boolean get() = true
             override val sourceUrl: String = PLAYER_CONFIG_URL
             override val defaultSourceUrl: String = PLAYER_CONFIG_URL
             override var cachedJson: String
-                get() = prefs.getString("json", "").orEmpty()
-                set(value) { prefs.edit().putString("json", value).apply() }
+                get() = preferences.getString("json", "").orEmpty()
+                set(value) { preferences.edit().putString("json", value).apply() }
             override var cachedAtMs: Long
-                get() = prefs.getLong("cached_at_ms", 0L) ?: 0L
-                set(value) { prefs.edit().putLong("cached_at_ms", value).apply() }
+                get() = preferences.getLong("cached_at_ms", 0L) ?: 0L
+                set(value) { preferences.edit().putLong("cached_at_ms", value).apply() }
             override var cachedSourceUrl: String
-                get() = prefs.getString("source_url", "").orEmpty()
-                set(value) { prefs.edit().putString("source_url", value).apply() }
+                get() = preferences.getString("source_url", "").orEmpty()
+                set(value) { preferences.edit().putString("source_url", value).apply() }
             override var cachedEtag: String
-                get() = prefs.getString("etag", "").orEmpty()
-                set(value) { prefs.edit().putString("etag", value).apply() }
+                get() = preferences.getString("etag", "").orEmpty()
+                set(value) { preferences.edit().putString("etag", value).apply() }
         }
         playerDir = File(app.filesDir, "ytm_players").apply { mkdirs() }
+        val savedVisitorData = preferences.getString(KEY_VISITOR_DATA, null) ?: DEFAULT_VISITOR_DATA
+        innerTube.visitorData = savedVisitorData
 
         scope.launch {
             // Solving a player is the slow part of a resolution, and it only has to be done once per
             // player version. Kept across processes, so only the first launch after YouTube rotates
             // its player pays for it.
             cipherService.setPreprocessedPlayerCache(::readPlayer, ::writePlayer)
-            warm()
+            warm(WARM_DELAY_MS)
         }
     }
 
-    private suspend fun warm() {
-        val start = SystemClock.elapsedRealtime()
-        runCatching { extractor.prewarm() }
-            .onFailure { if (it is CancellationException) throw it }
-            .onFailure { Log.w(TAG, "warm-up failed: ${it.message}") }
-            .onSuccess { Log.d(TAG, "warmed in ${SystemClock.elapsedRealtime() - start}ms") }
+    private fun warm(delayMs: Long) {
+        warmupJob?.cancel()
+        warmupJob = scope.launch {
+            delay(delayMs)
+            val start = SystemClock.elapsedRealtime()
+            runCatching {
+                extractor.prewarm()
+                innerTube.visitorData?.takeIf { it.isNotBlank() }?.let {
+                    prefs?.edit()?.putString(KEY_VISITOR_DATA, it)?.apply()
+                }
+            }
+                .onFailure { if (it is CancellationException) throw it }
+                .onFailure { Log.w(TAG, "warm-up failed: ${it.message}") }
+                .onSuccess { Log.d(TAG, "warmed in ${SystemClock.elapsedRealtime() - start}ms") }
+        }
     }
 
     private fun readPlayer(key: String): String? =
@@ -257,6 +279,7 @@ object YtmStream {
      *   looks like from here.
      */
     suspend fun resolve(videoId: String, maxKbps: Int = 0): YtmAudio? = withContext(Dispatchers.IO) {
+        warmupJob?.cancel()
         repeat(MAX_VERIFY_ATTEMPTS) {
             val audio = resolveOnce(videoId, maxKbps) ?: return@withContext null
             if (verify(audio) == Probe.OK) return@withContext audio
@@ -300,6 +323,9 @@ object YtmStream {
             profileId = stream.profileId,
         )
         minted[audio.url] = audio
+        innerTube.visitorData?.takeIf { it.isNotBlank() }?.let {
+            prefs?.edit()?.putString(KEY_VISITOR_DATA, it)?.apply()
+        }
         return audio
     }
 
