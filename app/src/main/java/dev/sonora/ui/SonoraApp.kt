@@ -659,36 +659,29 @@ private fun MainTabs(state: BackendState) {
                     onCycleRepeat = { SonoraPlayer.cycleRepeat() },
                     onAddToPlaylist = { addTarget = playback.track },
                     onOpenArtist = { artistName ->
-                        openArtistName = artistName
+                        openArtistName = null
                         openAlbumName = null
                         openPlaylistId = null
-                        // The track the link came from knows the artist on YouTube Music, so the
-                        // page it opens can show that artist's songs rather than only whatever
-                        // happens to be on this phone.
-                        openPage = playback.track?.remote?.let { remote ->
-                            PageRequest(
-                                name = artistName,
-                                browseId = remote.artistId,
-                                kind = PageKind.ARTIST,
-                            )
-                        }
+                        openPage = PageRequest(
+                            name = artistName,
+                            browseId = playback.track?.remote?.artistId,
+                            kind = PageKind.ARTIST,
+                        )
                         tab = MainTab.Library
                         playerOpen = false
                     },
                     onNeedPeers = { tab = MainTab.Network },
                     onOpenAlbum = { albumName ->
-                        openAlbumName = albumName
+                        openAlbumName = null
                         openArtistName = null
                         openPlaylistId = null
-                        openPage = playback.track?.remote?.let { remote ->
-                            PageRequest(
-                                name = albumName,
-                                browseId = remote.albumId,
-                                kind = PageKind.ALBUM,
-                                artist = remote.artist,
-                                artworkUrl = remote.artworkUrl,
-                            )
-                        }
+                        openPage = PageRequest(
+                            name = albumName,
+                            browseId = playback.track?.remote?.albumId,
+                            kind = PageKind.ALBUM,
+                            artist = playback.track?.artist ?: playback.track?.remote?.artist,
+                            artworkUrl = playback.track?.artworkUrl ?: playback.track?.remote?.artworkUrl,
+                        )
                         tab = MainTab.Library
                         playerOpen = false
                     },

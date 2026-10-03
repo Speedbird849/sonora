@@ -58,13 +58,9 @@ private const val BOTTOM_ALPHA = 0.95f
  */
 @Composable
 internal fun ArtworkBackdrop(
-    track: LibraryTrack,
+    artwork: androidx.compose.ui.graphics.ImageBitmap?,
     modifier: Modifier = Modifier,
 ) {
-    val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
-
-    // Cross-faded rather than swapped, because the bitmap changes identity per track and a hard cut
-    // from one blurred colour to another reads as the screen glitching.
     val alpha by animateFloatAsState(
         targetValue = if (artwork != null) 1f else 0f,
         animationSpec = tween(360),
@@ -90,9 +86,6 @@ internal fun ArtworkBackdrop(
             )
         }
 
-        // Over the sleeve, not under it. Underneath, the sleeve is drawn on top at full strength
-        // and the scrim is never seen — which is exactly what a "background" that does nothing
-        // looks like, and why this reads as a pale wash with white text on it.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -105,4 +98,24 @@ internal fun ArtworkBackdrop(
                 ),
         )
     }
+}
+
+@Composable
+internal fun ArtworkBackdrop(
+    track: LibraryTrack,
+    modifier: Modifier = Modifier,
+) {
+    val artwork = rememberTrackArtwork(track, px = PLAYER_ART_PX)
+    ArtworkBackdrop(artwork = artwork, modifier = modifier)
+}
+
+@Composable
+internal fun ArtworkBackdrop(
+    artworkUrl: String?,
+    fallbackTrack: LibraryTrack? = null,
+    modifier: Modifier = Modifier,
+) {
+    val artwork = rememberArtworkAt(artworkUrl, px = PLAYER_ART_PX)
+        ?: fallbackTrack?.let { rememberTrackArtwork(it, px = PLAYER_ART_PX) }
+    ArtworkBackdrop(artwork = artwork, modifier = modifier)
 }

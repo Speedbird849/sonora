@@ -76,12 +76,12 @@ fun rememberArtwork(file: File): ImageBitmap? {
  */
 @Composable
 fun rememberTrackArtwork(track: LibraryTrack, px: Int = dev.sonora.ui.ROW_ART_PX): ImageBitmap? {
-    val remote = track.remote
-    if (remote == null) {
-        val file = track.file ?: return null
-        return rememberArtwork(file)
+    val url = track.remote?.artworkUrl ?: track.artworkUrl
+    if (!url.isNullOrBlank()) {
+        return rememberRemoteArtwork(url, px)
     }
-    return rememberRemoteArtwork(remote.artworkUrl, px)
+    val file = track.file ?: return null
+    return rememberArtwork(file)
 }
 
 /**
@@ -92,7 +92,14 @@ fun rememberTrackArtwork(track: LibraryTrack, px: Int = dev.sonora.ui.ROW_ART_PX
  * second path onto them would decode every cover on the page twice.
  */
 @Composable
-fun rememberArtworkAt(url: String?, px: Int): ImageBitmap? = rememberRemoteArtwork(url, px)
+fun rememberArtworkAt(url: String?, px: Int): ImageBitmap? {
+    if (url.isNullOrBlank()) return null
+    if (url.startsWith("/") || url.startsWith("file://")) {
+        val file = File(url.removePrefix("file://"))
+        return rememberArtwork(file)
+    }
+    return rememberRemoteArtwork(url, px)
+}
 
 /**
  * A remote image for a row that has only a URL — a search result, which is not in the library yet
@@ -101,7 +108,7 @@ fun rememberArtworkAt(url: String?, px: Int): ImageBitmap? = rememberRemoteArtwo
 @Composable
 fun Artwork(url: String?, modifier: Modifier = Modifier, px: Int = dev.sonora.ui.ROW_ART_PX) {
     Box(modifier) {
-        val bitmap = rememberRemoteArtwork(url, px)
+        val bitmap = rememberArtworkAt(url, px)
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.fillMaxSize())
         }
@@ -118,11 +125,12 @@ fun Artwork(url: String?, modifier: Modifier = Modifier, px: Int = dev.sonora.ui
  */
 @Composable
 private fun rememberRemoteArtwork(url: String?, px: Int): ImageBitmap? {
-    val key = url?.let { artKey(it, px) }
-    var image by remember(key) { mutableStateOf(key?.let { decodedArtwork[it] }) }
+    if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) return null
+    val key = artKey(url, px)
+    var image by remember(key) { mutableStateOf(decodedArtwork[key]) }
 
     LaunchedEffect(key, image) {
-        if (key == null || url == null || image != null) return@LaunchedEffect
+        if (image != null) return@LaunchedEffect
         image = withContext(Dispatchers.IO) { fetchRemoteArtwork(url, px) }
     }
 
@@ -138,7 +146,7 @@ private fun rememberRemoteArtwork(url: String?, px: Int): ImageBitmap? {
 private fun bytesFor(url: String, px: Int): ByteArray? {
     val key = artKey(url, px)
     RemoteArtworkCache.bytes(key)?.let { return it }
-    val request = okhttp3.Request.Builder().url(key).build()
+    val request = runCatching { okhttp3.Request.Builder().url(key).build() }.getOrNull() ?: return null
     val bytes = runCatching {
         dev.sonora.ytm.YtmHttp.client.newCall(request).execute().use { response ->
             if (response.isSuccessful) response.body?.bytes() else null
