@@ -70,6 +70,7 @@ import dev.sonora.ytm.YtmTrack
 import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.SearchSource
 import dev.sonora.backend.SearchState
+import dev.sonora.backend.toYtm
 import dev.sonora.backend.SonoraBackend
 import dev.sonora.backend.SortMode
 import dev.sonora.ui.theme.accentText
@@ -131,6 +132,10 @@ fun SearchScreen(
     // they are reaching for is in the way of the thing they came to do.
     var fieldFocused by remember { mutableStateOf(false) }
     val showingShelves = showingHistory && !fieldFocused
+
+    // What has been played out of a search, so the page can offer the answer rather than the
+    // question. Read here rather than remembered so it survives leaving the tab.
+    val recentTracks by SonoraBackend.recentTracks.collectAsState()
 
     var selectedTab by remember { mutableStateOf(SearchSource.YOUTUBE_MUSIC) }
     val showSoulseek = selectedTab == SearchSource.SOULSEEK
@@ -276,6 +281,39 @@ fun SearchScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = listContentPadding(withMiniPlayer = playing),
         ) {
+            // The tracks played out of a search come first, because they are what a listener
+            // coming back to this page is most likely to want: the thing they already found, with
+            // its own cover, one tap from playing again. The queries they typed are the fallback
+            // for when there is nothing yet.
+            if (showingHistory && !showingShelves && recentTracks.isNotEmpty()) {
+                item(key = "recent-tracks") {
+                    ShelfHeader(
+                        title = "Recently played",
+                        subtitle = "Found here, and still one tap away",
+                    )
+                }
+
+                items(recentTracks, key = { it.key }) { recent ->
+                    val track = LibraryTrack(
+                        file = null,
+                        title = recent.title,
+                        artist = recent.artist,
+                        album = recent.album,
+                        size = 0,
+                        remote = recent.toYtm(),
+                        artworkUrl = recent.artworkUrl,
+                    )
+
+                    SongRow(
+                        track = track,
+                        onClick = { SonoraPlayer.play(context, track) },
+                        meta = listOfNotNull(recent.artist).joinToString("  ·  "),
+                    )
+                }
+
+                item(key = "recent-tracks-gap") { Spacer(Modifier.height(24.dp)) }
+            }
+
             // The default page, before anyone has touched the field: YouTube Music's own shelves,
             // so there is somewhere to go rather than an instruction to go. Deliberately under the
             // field rather than instead of it — the field is still the way in, and a page that hid
@@ -297,7 +335,9 @@ fun SearchScreen(
 
             if (showingHistory && !showingShelves) {
                 if (history.isEmpty()) {
-                    item { Note("Search to find music, on YouTube Music or the peer network.") }
+                    if (recentTracks.isEmpty()) {
+                        item { Note("Search to find music, on YouTube Music or the peer network.") }
+                    }
                 } else {
                     item {
                         Row(
