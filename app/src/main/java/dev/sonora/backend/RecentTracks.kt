@@ -24,6 +24,8 @@ data class RecentTrack(
     val artist: String? = null,
     val album: String? = null,
     val artworkUrl: String? = null,
+    val artistId: String? = null,
+    val albumId: String? = null,
 )
 
 /**
@@ -69,7 +71,9 @@ fun RecentTrack.toYtm(): YtmTrack = YtmTrack(
     videoId = key.removePrefix(LibraryTrack.REMOTE_PREFIX),
     title = title,
     artist = artist.orEmpty(),
+    artistId = artistId,
     album = album,
+    albumId = albumId,
     artworkUrl = artworkUrl,
 )
 

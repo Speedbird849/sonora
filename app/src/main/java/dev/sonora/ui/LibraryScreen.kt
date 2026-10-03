@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -121,14 +122,9 @@ fun LibraryScreen(
     // The page somebody opened from elsewhere. Asked for once per request and then held, because
     // the answer is cached on the backend and a recomposition must not turn into another request.
     val browsed by SonoraBackend.browsed.collectAsState()
-    LaunchedEffect(openPage?.browseId, openPage?.artist) {
+    LaunchedEffect(openPage?.cacheKey, openPage?.artist) {
         val page = openPage ?: return@LaunchedEffect
-        SonoraBackend.browse(
-            browseId = page.browseId ?: return@LaunchedEffect,
-            kind = page.kind,
-            name = page.name,
-            artist = page.artist,
-        )
+        SonoraBackend.browse(page)
     }
     var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
     var deleteTarget by remember { mutableStateOf<LibraryTrack?>(null) }
@@ -154,38 +150,33 @@ fun LibraryScreen(
     // Held by id, not by value, so a rename or a removal is reflected immediately — and so a
     // deleted playlist closes the screen instead of showing a stale copy.
     val open = openPlaylistId?.let { id -> playlists.firstOrNull { it.id == id } }
-    // What the page is called, whether it came from this screen or from somewhere else.
-    val pageName = when (openPage?.kind) {
-        PageKind.ALBUM -> openPage?.name
-        else -> null
+
+    val browsedAlbumPage = openPage?.takeIf { it.kind == PageKind.ALBUM }?.let { page ->
+        browsed[page.cacheKey] ?: page.browseId?.let { browsed[it] }
     }
-    val remoteAlbum = browsed[openPage?.browseId]
-        ?.takeIf { openPage?.kind == PageKind.ALBUM }
+    val remoteAlbum = browsedAlbumPage
         ?.page
         ?.tracks
         ?.map { LibraryTrack.fromRemote(it) }
         .orEmpty()
 
-    // A page asked for by browse id is the page YouTube Music served, and it wins over anything the
-    // local library happens to call the same thing. The album line on the player names an album and
-    // carries that album's browse id: tapping it is a request for the release, not for the one track
-    // of it that happens to be on this phone — which is a page of one, under the right name.
-    val album = openAlbum ?: (pageName ?: albumName ?: openAlbumName)?.let { name ->
-        val browsedAlbum = remoteAlbum.takeIf { it.isNotEmpty() }?.let { tracks ->
+    val album = openAlbum ?: when {
+        openPage?.kind == PageKind.ALBUM -> {
+            val title = browsedAlbumPage?.page?.title?.takeIf { it.isNotBlank() } ?: openPage.name
+            val albumArtist = remoteAlbum.firstNotNullOfOrNull { it.artist }
+                ?: openPage.artist
+                ?: LibraryGrouping.UNKNOWN_ARTIST
             LibraryGrouping.Album(
-                name = browsed[openPage?.browseId]?.page?.title?.takeIf { h -> h.isNotBlank() } ?: name,
-                artist = tracks.firstNotNullOfOrNull { it.artist }
-                    ?: LibraryGrouping.UNKNOWN_ARTIST,
-                tracks = tracks,
+                name = title,
+                artist = albumArtist,
+                tracks = remoteAlbum,
             )
         }
-        when {
-            openPage?.browseId != null -> browsedAlbum
-            else -> albums.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        else -> (albumName ?: openAlbumName)?.let { name ->
+            albums.firstOrNull { it.name.equals(name, ignoreCase = true) }
                 ?: playback.track?.takeIf { it.album?.equals(name, ignoreCase = true) == true }?.let { t ->
                     LibraryGrouping.Album(name = name, artist = t.artist ?: LibraryGrouping.UNKNOWN_ARTIST, tracks = listOf(t))
                 }
-                ?: browsedAlbum
         }
     }
 
@@ -206,41 +197,39 @@ fun LibraryScreen(
             },
             onPlayFrom = { index -> SonoraPlayer.play(context, album.tracks, index) },
             onFindMore = onRunSearch,
-            // The cover belongs to the album, and the search that named it already had it. Its own
-            // tracks have no file and no picture of their own to borrow.
-            artworkUrl = openPage?.artworkUrl,
+            artworkUrl = browsedAlbumPage?.page?.artworkUrl ?: openPage?.artworkUrl,
             playing = playback.track != null,
         )
         return
     }
 
-    val remoteArtistName = when (openPage?.kind) {
-        PageKind.ARTIST -> openPage?.name
-        else -> null
+    val browsedArtistPage = openPage?.takeIf { it.kind == PageKind.ARTIST }?.let { page ->
+        browsed[page.cacheKey] ?: page.browseId?.let { browsed[it] }
     }
-    val remoteArtist = browsed[openPage?.browseId]
-        ?.takeIf { openPage?.kind == PageKind.ARTIST }
-        ?.let { entry ->
-            LibraryGrouping.Artist(
-                name = entry.page.title?.takeIf { it.isNotBlank() } ?: openPage?.name.orEmpty(),
-                tracks = entry.page.tracks.map { LibraryTrack.fromRemote(it) },
-            ).takeIf { it.tracks.isNotEmpty() }
-        }
+    val remoteArtistTracks = browsedArtistPage
+        ?.page
+        ?.tracks
+        ?.map { LibraryTrack.fromRemote(it) }
+        .orEmpty()
 
-    val artist = openArtist ?: remoteArtist
-        ?: (remoteArtistName ?: artistName ?: openArtistName)?.let { name ->
+    val artist = openArtist ?: when {
+        openPage?.kind == PageKind.ARTIST -> {
+            val title = browsedArtistPage?.page?.title?.takeIf { it.isNotBlank() } ?: openPage.name
+            LibraryGrouping.Artist(
+                name = title,
+                tracks = remoteArtistTracks,
+            )
+        }
+        else -> (artistName ?: openArtistName)?.let { name ->
             artists.firstOrNull { it.name.equals(name, ignoreCase = true) }
                 ?: playback.track?.takeIf { it.artist?.equals(name, ignoreCase = true) == true }?.let { t ->
                     LibraryGrouping.Artist(name = name, tracks = listOf(t))
                 }
         }
+    }
 
-    // The artist's own records, from the same page as their songs. Empty until it has arrived,
-    // which is what tells the screen to keep showing placeholders rather than claim they do not
-    // exist.
-    val artistPage = browsed[openPage?.browseId]?.takeIf { openPage?.kind == PageKind.ARTIST }
-    val artistAlbums = artistPage?.page?.albums.orEmpty()
-    val artistSingles = artistPage?.page?.singles.orEmpty()
+    val artistAlbums = browsedArtistPage?.page?.albums.orEmpty()
+    val artistSingles = browsedArtistPage?.page?.singles.orEmpty()
 
     if (artist != null) {
         BackHandler {
@@ -253,7 +242,10 @@ fun LibraryScreen(
             artist = artist,
             remoteAlbums = artistAlbums,
             remoteSingles = artistSingles,
-            artworkUrl = artistPage?.page?.artworkUrl,
+            artworkUrl = browsedArtistPage?.page?.artworkUrl
+                ?: openPage?.artworkUrl
+                ?: playback.track?.takeIf { it.artist.equals(artist.name, ignoreCase = true) }?.artworkUrl,
+            playing = playback.track != null,
             onBack = {
                 openArtist = null
                 artistName = null
@@ -287,7 +279,11 @@ fun LibraryScreen(
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+    ) {
         Text(
             text = "Library",
             style = MaterialTheme.typography.displayLarge,

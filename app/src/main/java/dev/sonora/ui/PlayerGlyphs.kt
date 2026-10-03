@@ -25,14 +25,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -228,9 +226,9 @@ internal fun CircleGlyph(
 
 /**
  * Clean, balanced row of secondary playback controls under the volume slider:
- * [Lyrics]   [Shuffle]   [Repeat]   [Autoplay]   [Lossless Search]   [Queue]
+ * [Lyrics]   [Shuffle]   [Repeat]   [Queue]
  *
- * Evenly distributed across the row with identical 40dp touch areas and 22dp rounded glyphs.
+ * Centered with shuffle and replay in the middle, matching the transport row's visual span.
  */
 @Composable
 internal fun PlayerActionRow(
@@ -240,16 +238,13 @@ internal fun PlayerActionRow(
     onToggleShuffle: () -> Unit,
     repeatMode: RepeatMode,
     onCycleRepeat: () -> Unit,
-    autoplay: Boolean,
-    onToggleAutoplay: () -> Unit,
-    onFindLossless: () -> Unit,
     queueOpen: Boolean,
     onToggleQueue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SubIconButton(
@@ -278,20 +273,6 @@ internal fun PlayerActionRow(
             },
             active = repeatMode != RepeatMode.Off,
             onClick = onCycleRepeat,
-        )
-
-        SubIconButton(
-            icon = Icons.Rounded.AutoAwesome,
-            contentDescription = if (autoplay) "Turn autoplay off" else "Turn autoplay on",
-            active = autoplay,
-            onClick = onToggleAutoplay,
-        )
-
-        SubIconButton(
-            icon = Icons.Rounded.Search,
-            contentDescription = "Find lossless copy",
-            active = false,
-            onClick = onFindLossless,
         )
 
         SubIconButton(

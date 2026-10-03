@@ -764,6 +764,8 @@ object SonoraBackend {
                     artist = track.artist,
                     album = track.album,
                     artworkUrl = recent.artworkUrl,
+                    artistId = recent.artistId,
+                    albumId = recent.albumId,
                 ),
             ) + _recentTracks.value.filterNot { it.key == track.key }
 
@@ -1200,7 +1202,7 @@ object SonoraBackend {
         }
     }
 
-    fun browse(browseId: String, kind: PageKind, name: String? = null, artist: String? = null) {
+    fun browse(browseId: String, kind: PageKind, name: String? = null, artist: String? = null, artworkUrl: String? = null) {
         if (browseId.isBlank() || _browsed.value.containsKey(browseId)) return
 
         scope.launch {
@@ -1216,12 +1218,56 @@ object SonoraBackend {
                 albumName = name.takeIf { kind == PageKind.ALBUM },
                 albumArtist = artist,
             )
+            val resolvedPage = if (page.artworkUrl.isNullOrBlank() && !artworkUrl.isNullOrBlank()) {
+                page.copy(artworkUrl = artworkUrl)
+            } else {
+                page
+            }
             Log.d(
                 TAG,
-                "browse: $browseId -> ${page.tracks.size} track(s), " +
-                    "${page.albums.size} album(s), ${page.singles.size} single(s)",
+                "browse: $browseId -> ${resolvedPage.tracks.size} track(s), " +
+                    "${resolvedPage.albums.size} album(s), ${resolvedPage.singles.size} single(s)",
             )
-            _browsed.update { it + (browseId to BrowsedPage(kind, page)) }
+            _browsed.update { it + (browseId to BrowsedPage(kind, resolvedPage)) }
+        }
+    }
+
+    fun browse(request: PageRequest) {
+        val browseId = request.browseId
+        if (!browseId.isNullOrBlank()) {
+            browse(browseId, request.kind, request.name, request.artist, request.artworkUrl)
+            return
+        }
+        val cacheKey = request.cacheKey
+        if (request.name.isBlank() || _browsed.value.containsKey(cacheKey)) return
+
+        scope.launch {
+            val entity = when (request.kind) {
+                PageKind.ARTIST -> YtmCatalogSearch.artists(request.name).firstOrNull()
+                PageKind.ALBUM -> {
+                    val query = listOfNotNull(request.name, request.artist).filter { it.isNotBlank() }.joinToString(" ")
+                    YtmCatalogSearch.albums(query).firstOrNull()
+                        ?: YtmCatalogSearch.albums(request.name).firstOrNull()
+                }
+            }
+            val resolvedId = entity?.browseId
+            if (resolvedId.isNullOrBlank()) {
+                _browsed.update { it + (cacheKey to BrowsedPage(request.kind, YtmBrowse.Page())) }
+                return@launch
+            }
+            val page = YtmBrowse.page(
+                resolvedId,
+                albumName = request.name.takeIf { request.kind == PageKind.ALBUM },
+                albumArtist = request.artist,
+            )
+            val resolvedArtwork = page.artworkUrl ?: entity.artworkUrl ?: request.artworkUrl
+            val resolvedPage = if (page.artworkUrl != resolvedArtwork) {
+                page.copy(artworkUrl = resolvedArtwork)
+            } else {
+                page
+            }
+            val entry = BrowsedPage(request.kind, resolvedPage)
+            _browsed.update { it + (resolvedId to entry) + (cacheKey to entry) }
         }
     }
 

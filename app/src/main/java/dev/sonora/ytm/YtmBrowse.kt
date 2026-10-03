@@ -208,15 +208,26 @@ object YtmBrowse {
     ).firstNotNullOfOrNull { it.obj()?.get(key) }.joined()?.trim()?.ifBlank { null }
 
     /** The biggest picture on the page, which is the one in the header rather than a row's. */
-    private fun headerArtwork(root: JsonElement): String? = listOfNotNull(
-        root.descend("header", "musicImmersiveHeaderRenderer"),
-        root.descend("header", "musicDetailHeaderRenderer"),
-        root.descend("header", "musicResponsiveHeaderRenderer"),
-    ).firstNotNullOfOrNull { header ->
-        header.descend("thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails")
-            .arr()
-            .lastOrNull()
-    }?.obj()?.get("url")?.plain()
+    private fun headerArtwork(root: JsonElement): String? {
+        val candidates = listOfNotNull(
+            root.descend("header", "musicImmersiveHeaderRenderer"),
+            root.descend("header", "musicDetailHeaderRenderer"),
+            root.descend("header", "musicResponsiveHeaderRenderer"),
+            root.descend("header", "musicEditablePlaylistDetailHeaderRenderer"),
+            root.descend("contents", "twoColumnBrowseResultsRenderer", "tabs").arr()
+                .firstOrNull()?.descend("tabRenderer", "content", "sectionListRenderer", "contents")?.arr()
+                ?.firstOrNull()?.descend("musicResponsiveHeaderRenderer"),
+            root.descend("contents", "singleColumnBrowseResultsRenderer", "tabs").arr()
+                .firstOrNull()?.descend("tabRenderer", "content", "sectionListRenderer", "contents")?.arr()
+                ?.firstOrNull()?.descend("musicResponsiveHeaderRenderer"),
+        )
+        return candidates.firstNotNullOfOrNull { header ->
+            val thumbs = header.descend("thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails").arr()
+                .ifEmpty { header.descend("thumbnail", "croppedSquareThumbnailRenderer", "thumbnail", "thumbnails").arr() }
+                .ifEmpty { header.descend("thumbnails").arr() }
+            thumbs.lastOrNull()?.obj()?.get("url")?.plain()
+        }
+    }
 
     /**
      * The page's own JSON, for a caller that wants to read a part of it this object does not.

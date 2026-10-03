@@ -49,15 +49,23 @@ object LyricsStore {
         if (inFlight == key) return
         inFlight = key
 
+        val videoId = track.remote?.videoId.orEmpty()
         val title = track.title
         val artist = track.artist.orEmpty()
+        val album = track.album
 
         SonoraBackend.lyricsScope.launch {
-            val lines = LrcLib.lyrics(title, artist, durationMs)
-            val value = if (lines.isEmpty()) {
+            val result = LyricsRepository.lyrics(
+                videoId = videoId,
+                title = title,
+                artist = artist,
+                durationMs = durationMs,
+                album = album,
+            )
+            val value = if (result == null || result.lines.isEmpty()) {
                 Lyrics(reason = "No lyrics for this track")
             } else {
-                Lyrics(lines = lines)
+                Lyrics(lines = result.lines)
             }
             cache[key] = value
             if (inFlight == key) {

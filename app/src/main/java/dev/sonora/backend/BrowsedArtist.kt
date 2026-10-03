@@ -42,4 +42,6 @@ data class PageRequest(
     val artist: String? = null,
     /** The album's or artist's own picture, where the row that named it had one. */
     val artworkUrl: String? = null,
-)
+) {
+    val cacheKey: String get() = browseId ?: "name:${kind}:${name.lowercase().trim()}"
+}

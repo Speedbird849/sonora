@@ -66,7 +66,7 @@ object LrcLib {
             val parsed = Lrc.parse(raw)
             // A gap with no end is a stray stamp rather than an instrumental stretch, and drawn as
             // one it is a row of dots in the middle of a verse.
-            parsed.filter { !it.isGap || it.endMs != null }
+            parsed.filter { !it.isGap || it.endMs > it.timeMs }
         }
 
     private suspend fun exactMatch(title: String, artist: String, seconds: Int): String? {

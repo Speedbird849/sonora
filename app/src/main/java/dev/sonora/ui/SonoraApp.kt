@@ -422,13 +422,13 @@ private fun MainTabs(state: BackendState) {
             // Inset by the status bar only. There is no bar across the top: every page carries a
             // large heading that says what it is, and a second name above it was a smaller copy
             // of that heading which disagreed with it the moment the heading scrolled away.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding(),
-            ) {
             when (tab) {
-                MainTab.Home -> HomeScreen(
+                MainTab.Home -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                ) {
+                    HomeScreen(
                         onImportSpotify = { spotifyImport = true },
                         onOpenShelfPlaylist = { homePages += ShelfPage.Playlist(it) },
                         onOpenCategory = { homePages += ShelfPage.Category(it) },
@@ -445,56 +445,74 @@ private fun MainTabs(state: BackendState) {
                             tab = MainTab.Library
                         },
                     )
-                MainTab.Search -> SearchScreen(
-                    onNeedPeers = { tab = MainTab.Network },
-                    // The whole row, so the page opens with the cover the shelf was showing rather
-                    // than a gap where it should be.
-                    onOpenPlaylist = { searchPages += ShelfPage.Playlist(it) },
-                    onOpenCategory = { searchPages += ShelfPage.Category(it) },
-                    onOpenAlbum = { entity ->
-                        openPage = PageRequest(
-                            name = entity.title,
-                            browseId = entity.browseId,
-                            kind = PageKind.ALBUM,
-                            // The second line of an album's card is its artist, and an album's page
-                            // repeats it on none of its tracks.
-                            artist = entity.subtitle,
-                            artworkUrl = entity.artworkUrl,
-                        )
-                        tab = MainTab.Library
-                    },
-                    onOpenArtist = { entity ->
-                        openPage = PageRequest(
-                            name = entity.title,
-                            browseId = entity.browseId,
-                            kind = PageKind.ARTIST,
-                        )
-                        tab = MainTab.Library
-                    },
-                )
+                }
+                MainTab.Search -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                ) {
+                    SearchScreen(
+                        onNeedPeers = { tab = MainTab.Network },
+                        // The whole row, so the page opens with the cover the shelf was showing rather
+                        // than a gap where it should be.
+                        onOpenPlaylist = { searchPages += ShelfPage.Playlist(it) },
+                        onOpenCategory = { searchPages += ShelfPage.Category(it) },
+                        onOpenAlbum = { entity ->
+                            openPage = PageRequest(
+                                name = entity.title,
+                                browseId = entity.browseId,
+                                kind = PageKind.ALBUM,
+                                // The second line of an album's card is its artist, and an album's page
+                                // repeats it on none of its tracks.
+                                artist = entity.subtitle,
+                                artworkUrl = entity.artworkUrl,
+                            )
+                            tab = MainTab.Library
+                        },
+                        onOpenArtist = { entity ->
+                            openPage = PageRequest(
+                                name = entity.title,
+                                browseId = entity.browseId,
+                                kind = PageKind.ARTIST,
+                            )
+                            tab = MainTab.Library
+                        },
+                    )
+                }
 
                 MainTab.Library -> LibraryScreen(
-                        onRunSearch = { term ->
-                            tab = MainTab.Search
-                            SonoraBackend.search(context, term)
-                        },
-                        openPlaylistId = openPlaylistId,
-                        onOpenPlaylist = { openPlaylistId = it },
-                        onClosePlaylist = { openPlaylistId = null },
-                        openArtistName = openArtistName,
-                        onCloseArtist = { openArtistName = null },
-                        openAlbumName = openAlbumName,
-                        onCloseAlbum = { openAlbumName = null },
-                        openPage = openPage,
-                        onClosePage = { openPage = null },
-                        onNeedPeers = { tab = MainTab.Network },
-                    )
-                MainTab.Settings -> SettingsScreen()
+                    onRunSearch = { term ->
+                        tab = MainTab.Search
+                        SonoraBackend.search(context, term)
+                    },
+                    openPlaylistId = openPlaylistId,
+                    onOpenPlaylist = { openPlaylistId = it },
+                    onClosePlaylist = { openPlaylistId = null },
+                    openArtistName = openArtistName,
+                    onCloseArtist = { openArtistName = null },
+                    openAlbumName = openAlbumName,
+                    onCloseAlbum = { openAlbumName = null },
+                    openPage = openPage,
+                    onClosePage = { openPage = null },
+                    onNeedPeers = { tab = MainTab.Network },
+                )
+                MainTab.Settings -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                ) {
+                    SettingsScreen()
+                }
 
                 // The connect screen, reachable at any time, and showing the session once
                 // there is one.
-                MainTab.Network -> ConnectScreen(state = state)
-            }
+                MainTab.Network -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                ) {
+                    ConnectScreen(state = state)
+                }
             }
         }
 
@@ -515,7 +533,8 @@ private fun MainTabs(state: BackendState) {
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background),
+                        .background(MaterialTheme.colorScheme.background)
+                        .statusBarsPadding(),
                 ) {
                     CategoryScreen(
                         category = category,
@@ -538,7 +557,8 @@ private fun MainTabs(state: BackendState) {
                         // Opaque, because a page drawn over a page without it is two pages
                         // showing through each other.
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background),
+                        .background(MaterialTheme.colorScheme.background)
+                        .statusBarsPadding(),
                 ) {
                     RemotePlaylistScreen(
                         playlist = playlist,
@@ -657,39 +677,31 @@ private fun MainTabs(state: BackendState) {
                     },
                     onToggleShuffle = { SonoraPlayer.toggleShuffle() },
                     onCycleRepeat = { SonoraPlayer.cycleRepeat() },
-                    onToggleAutoplay = { SonoraPlayer.toggleAutoplay() },
                     onAddToPlaylist = { addTarget = playback.track },
                     onOpenArtist = { artistName ->
-                        openArtistName = artistName
+                        openArtistName = null
                         openAlbumName = null
                         openPlaylistId = null
-                        // The track the link came from knows the artist on YouTube Music, so the
-                        // page it opens can show that artist's songs rather than only whatever
-                        // happens to be on this phone.
-                        openPage = playback.track?.remote?.let { remote ->
-                            PageRequest(
-                                name = artistName,
-                                browseId = remote.artistId,
-                                kind = PageKind.ARTIST,
-                            )
-                        }
+                        openPage = PageRequest(
+                            name = artistName,
+                            browseId = playback.track?.remote?.artistId,
+                            kind = PageKind.ARTIST,
+                        )
                         tab = MainTab.Library
                         playerOpen = false
                     },
                     onNeedPeers = { tab = MainTab.Network },
                     onOpenAlbum = { albumName ->
-                        openAlbumName = albumName
+                        openAlbumName = null
                         openArtistName = null
                         openPlaylistId = null
-                        openPage = playback.track?.remote?.let { remote ->
-                            PageRequest(
-                                name = albumName,
-                                browseId = remote.albumId,
-                                kind = PageKind.ALBUM,
-                                artist = remote.artist,
-                                artworkUrl = remote.artworkUrl,
-                            )
-                        }
+                        openPage = PageRequest(
+                            name = albumName,
+                            browseId = playback.track?.remote?.albumId,
+                            kind = PageKind.ALBUM,
+                            artist = playback.track?.artist ?: playback.track?.remote?.artist,
+                            artworkUrl = playback.track?.artworkUrl ?: playback.track?.remote?.artworkUrl,
+                        )
                         tab = MainTab.Library
                         playerOpen = false
                     },

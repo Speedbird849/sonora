@@ -56,11 +56,19 @@ object AudioQuality {
     private val cache = ConcurrentHashMap<String, String>()
 
     /**
-     * A short description of a file's audio, or an empty string for one there is no file for.
+     * A short description of a track's audio, or an empty string if unknown.
      *
-     * A streaming track has no file to inspect, so it has no codec to name. Blank rather than a
-     * placeholder: the player draws this only when it is non-blank, and a line reading "stream" where
-     * every other row reads "FLAC 24/96" would be claiming a fact nobody has.
+     * Local files show technical audio specs (format, bit depth, sample rate or bitrate).
+     * YouTube Music streaming tracks show "YT Music".
+     */
+    fun from(track: LibraryTrack, durationMs: Long = 0L): String {
+        if (track.file != null) return from(track.file, durationMs)
+        if (track.isRemote) return "YT Music"
+        return ""
+    }
+
+    /**
+     * A short description of a file's audio, or an empty string for one there is no file for.
      */
     fun from(file: File?, durationMs: Long = 0L): String {
         if (file == null) return ""

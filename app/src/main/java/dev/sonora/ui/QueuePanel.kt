@@ -1,10 +1,18 @@
 package dev.sonora.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,44 +31,50 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import kotlin.math.roundToInt
-import androidx.compose.ui.zIndex
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import dev.sonora.backend.LibraryTrack
 import dev.sonora.backend.UpNext
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
- * What is playing and what comes next, in place of the player.
+ * What is playing and what comes next, styled to match the player screen.
  *
- * A panel rather than a sheet, and in place rather than pushed over: the queue is a thing you look
- * at *while* the record keeps playing, and a page that covers the player hides the position and the
- * controls that are still doing something. The track that is sounding stays at the top, marked,
- * and everything below it is one tap away.
- *
- * Reorderable by holding a row and sliding it. The handle is at the row's own end rather than over
- * the whole row, so a hold that means "read this" is not a hold that means "move it" — but a hold
- * anywhere on the row does move it, because that is what a hand expects and the alternative is a
- * thirty-pixel target.
+ * Sits as a translucent sheet over the blurred sleeve backdrop, with interactive pull-to-dismiss
+ * gesture, drag reordering, and rounded typography and icons.
  */
 @Composable
 internal fun QueuePanel(
@@ -71,112 +85,240 @@ internal fun QueuePanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Which of the *following* rows is being held, and how far it has been carried. Null until a
-    // hold starts, so a drag that has not begun costs nothing.
     var held by remember { mutableStateOf<Int?>(null) }
     var carried by remember { mutableFloatStateOf(0f) }
     var rowHeight by remember { mutableFloatStateOf(0f) }
 
     val listState = rememberLazyListState()
 
-    Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(start = 24.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Up next",
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
-                modifier = Modifier.weight(1f),
-            )
-            CircleGlyph(
-                icon = Icons.Filled.Close,
-                contentDescription = "Close the queue",
-                onClick = onClose,
-            )
-        }
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val dismissThresholdPx = with(density) { 120.dp.toPx() }
 
-        val following = upNext.following
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-        ) {
-            val current = upNext.current
-            if (current != null) {
-                item(key = "now-playing") {
-                    QueueHeading("Now playing")
-                    QueueRow(
-                        track = current,
-                        isCurrent = true,
-                        isPlaying = true,
-                        onClick = { onPlayFrom(upNext.index) },
-                        onRemove = null,
-                    )
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val animOffsetY = remember { Animatable(0f) }
+    var isAnimating by remember { mutableStateOf(false) }
+    var isDismissing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val currentOffset = if (isAnimating) animOffsetY.value else dragOffsetY
+
+    val verticalDragState = rememberDraggableState { delta ->
+        if (isDismissing) return@rememberDraggableState
+        if (isAnimating) {
+            dragOffsetY = animOffsetY.value
+            isAnimating = false
+        }
+        dragOffsetY = (dragOffsetY + delta).coerceIn(0f, screenHeightPx)
+    }
+
+    val onVerticalDragStopped: suspend kotlinx.coroutines.CoroutineScope.(Float) -> Unit = { velocity ->
+        if (!isDismissing) {
+            val offset = dragOffsetY
+            val shouldDismiss = (offset > dismissThresholdPx && velocity > -400f) || velocity > 800f
+            if (shouldDismiss) {
+                isDismissing = true
+                isAnimating = true
+                coroutineScope.launch {
+                    try {
+                        animOffsetY.snapTo(offset)
+                        animOffsetY.animateTo(
+                            targetValue = screenHeightPx,
+                            initialVelocity = velocity.coerceAtLeast(0f),
+                            animationSpec = tween(
+                                durationMillis = 200,
+                                easing = FastOutLinearInEasing,
+                            ),
+                        )
+                    } catch (_: Exception) {
+                    } finally {
+                        withContext(NonCancellable) {
+                            onClose()
+                        }
+                    }
+                }
+            } else {
+                isAnimating = true
+                coroutineScope.launch {
+                    try {
+                        animOffsetY.snapTo(offset)
+                        animOffsetY.animateTo(
+                            targetValue = 0f,
+                            initialVelocity = velocity,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ),
+                        )
+                    } finally {
+                        dragOffsetY = 0f
+                        isAnimating = false
+                    }
                 }
             }
+        }
+    }
 
-            if (following.isNotEmpty()) {
-                item(key = "next-heading") { QueueHeading("Next in queue") }
+    val sheetShape = remember { RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp) }
+    val following = upNext.following
+
+    Surface(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationY = currentOffset
+                clip = true
+                shape = sheetShape
             }
-
-            itemsIndexed(following, key = { _, t -> t.key }) { position, track ->
-                val absolute = upNext.index + 1 + position
-                val dragging = held == position
+            .border(
+                width = 0.5.dp,
+                color = Color.White.copy(alpha = 0.12f),
+                shape = sheetShape,
+            ),
+        color = Color(0xFF262629).copy(alpha = 0.72f),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+        ) {
+            // Drag handle and top bar with vertical drag gesture
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        state = verticalDragState,
+                        onDragStopped = onVerticalDragStopped,
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp, bottom = 8.dp)
+                        .size(width = 36.dp, height = 4.5.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.32f)),
+                )
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .offset { IntOffset(0, if (dragging) carried.roundToInt() else 0) }
-                        .zIndex(if (dragging) 1f else 0f)
-                        .pointerInput(position) {
-                            var offsetY = 0f
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    held = position
-                                    carried = 0f
-                                    rowHeight = size.height.toFloat()
-                                },
-                                onDrag = { change, amount ->
-                                    change.consume()
-                                    offsetY += amount.y
-                                    carried = offsetY
-                                },
-                                onDragEnd = {
-                                    val row = rowHeight.takeIf { it > 0f } ?: 1f
-                                    // Rounded rather than measured against the live list: a drag
-                                    // that crosses half a row is a deliberate move, and one that
-                                    // wobbles is not.
-                                    val steps = (offsetY / row).toInt()
-                                    if (steps != 0) {
-                                        onMove(absolute, (absolute + steps).coerceIn(0, following.size))
-                                    }
-                                    held = null
-                                    carried = 0f
-                                },
-                                onDragCancel = {
-                                    held = null
-                                    carried = 0f
-                                },
-                            )
-                        },
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    QueueRow(
-                        track = track,
-                        isCurrent = false,
-                        isPlaying = false,
-                        onClick = { onPlayFrom(absolute) },
-                        onRemove = { onRemove(absolute) },
-                        onDragHandle = { delta ->
-                            held = position
-                            carried += delta
-                        },
-                        isHeld = dragging,
+                    SubIconButton(
+                        icon = Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = "Close queue",
+                        onClick = onClose,
+                        size = 40.dp,
+                        glyphSize = 24.dp,
+                        idleTint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.align(Alignment.CenterStart),
                     )
+
+                    Text(
+                        text = "UP NEXT",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp,
+                        ),
+                        color = Color.White.copy(alpha = 0.65f),
+                        textAlign = TextAlign.Center,
+                    )
+
+                    if (following.isNotEmpty()) {
+                        Text(
+                            text = "${following.size}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                            color = Color.White.copy(alpha = 0.45f),
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 12.dp),
+                        )
+                    }
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
+            ) {
+                val current = upNext.current
+                if (current != null) {
+                    item(key = "now-playing") {
+                        QueueHeading("NOW PLAYING")
+                        QueueRow(
+                            track = current,
+                            isCurrent = true,
+                            isPlaying = true,
+                            onClick = { onPlayFrom(upNext.index) },
+                            onRemove = null,
+                        )
+                    }
+                }
+
+                if (following.isNotEmpty()) {
+                    item(key = "next-heading") {
+                        QueueHeading("NEXT IN QUEUE")
+                    }
+                }
+
+                itemsIndexed(following, key = { _, t -> t.key }) { position, track ->
+                    val absolute = upNext.index + 1 + position
+                    val dragging = held == position
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset { IntOffset(0, if (dragging) carried.roundToInt() else 0) }
+                            .zIndex(if (dragging) 1f else 0f)
+                            .pointerInput(position) {
+                                var offsetY = 0f
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        held = position
+                                        carried = 0f
+                                        rowHeight = size.height.toFloat()
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        offsetY += amount.y
+                                        carried = offsetY
+                                    },
+                                    onDragEnd = {
+                                        val row = rowHeight.takeIf { it > 0f } ?: 1f
+                                        val steps = (offsetY / row).toInt()
+                                        if (steps != 0) {
+                                            onMove(absolute, (absolute + steps).coerceIn(0, following.size))
+                                        }
+                                        held = null
+                                        carried = 0f
+                                    },
+                                    onDragCancel = {
+                                        held = null
+                                        carried = 0f
+                                    },
+                                )
+                            },
+                    ) {
+                        QueueRow(
+                            track = track,
+                            isCurrent = false,
+                            isPlaying = false,
+                            onClick = { onPlayFrom(absolute) },
+                            onRemove = { onRemove(absolute) },
+                            onDragHandle = { delta ->
+                                held = position
+                                carried += delta
+                            },
+                            isHeld = dragging,
+                        )
+                    }
                 }
             }
         }
@@ -187,21 +329,19 @@ internal fun QueuePanel(
 private fun QueueHeading(title: String) {
     Text(
         text = title,
-        style = MaterialTheme.typography.titleMedium,
-        color = Color.White.copy(alpha = 0.75f),
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.2.sp,
+        ),
+        color = Color.White.copy(alpha = 0.5f),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 6.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 6.dp),
     )
 }
 
 /**
- * One entry in the queue.
- *
- * Smaller artwork than a list row — 44 rather than 52 — because this is a long list read at a
- * glance, and a queue that only shows six of its own tracks is not much of a queue. The row that is
- * sounding is told three ways: full-strength title, an equaliser mark, and no remove button, because
- * removing the thing that is playing is not a thing anyone means.
+ * One entry in the queue with rounded corners, subtle glass highlighting and rounded icons.
  */
 @Composable
 private fun QueueRow(
@@ -213,21 +353,29 @@ private fun QueueRow(
     onDragHandle: ((Float) -> Unit)? = null,
     isHeld: Boolean = false,
 ) {
+    val rowShape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isHeld) Color.White.copy(alpha = 0.10f) else Color.Transparent)
+            .clip(rowShape)
+            .background(
+                when {
+                    isHeld -> Color.White.copy(alpha = 0.14f)
+                    isCurrent -> Color.White.copy(alpha = 0.08f)
+                    else -> Color.Transparent
+                },
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val shape = RoundedCornerShape(6.dp)
+        val artShape = RoundedCornerShape(10.dp)
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .clip(shape)
-                .background(Color.White.copy(alpha = 0.08f)),
+                .size(46.dp)
+                .clip(artShape)
+                .background(Color.White.copy(alpha = 0.08f))
+                .border(0.5.dp, Color.White.copy(alpha = 0.12f), artShape),
             contentAlignment = Alignment.Center,
         ) {
             val artwork = rememberTrackArtwork(track, px = ROW_ART_PX)
@@ -235,7 +383,8 @@ private fun QueueRow(
                 Image(
                     bitmap = artwork,
                     contentDescription = null,
-                    modifier = Modifier.size(44.dp),
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
@@ -245,7 +394,9 @@ private fun QueueRow(
         Column(Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                ),
                 color = if (isCurrent) Color.White else Color.White.copy(alpha = 0.92f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -263,10 +414,10 @@ private fun QueueRow(
 
         if (isCurrent) {
             Icon(
-                imageVector = if (isPlaying) Icons.Filled.GraphicEq else Icons.Filled.PlayArrow,
+                imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow,
                 contentDescription = "Now playing",
                 tint = Color.White,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(10.dp))
         }
@@ -274,8 +425,7 @@ private fun QueueRow(
         if (onDragHandle != null) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
+                    .size(36.dp)
                     .pointerInput(Unit) {
                         detectDragGesturesAfterLongPress(
                             onDrag = { change, amount ->
@@ -287,30 +437,24 @@ private fun QueueRow(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = Icons.Filled.DragHandle,
+                    imageVector = Icons.Rounded.DragHandle,
                     contentDescription = "Hold and slide to reorder",
                     tint = Color.White.copy(alpha = 0.45f),
                     modifier = Modifier.size(20.dp),
                 )
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
         }
 
         if (onRemove != null) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onRemove),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Remove from queue",
-                    tint = Color.White.copy(alpha = 0.55f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            SubIconButton(
+                icon = Icons.Rounded.Close,
+                contentDescription = "Remove from queue",
+                onClick = onRemove,
+                size = 36.dp,
+                glyphSize = 18.dp,
+                idleTint = Color.White.copy(alpha = 0.5f),
+            )
         }
     }
 }
