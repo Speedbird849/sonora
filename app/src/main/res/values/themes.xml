@@ -4,5 +4,10 @@
         Window theme only; all in-app styling comes from Compose (ui/theme).
         Dark, so the window background does not flash white before Compose draws.
     -->
-    <style name="Theme.Sonora" parent="android:Theme.Material.NoActionBar" />
+    <style name="Theme.Sonora" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>
