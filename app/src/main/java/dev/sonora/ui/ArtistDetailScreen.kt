@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -58,6 +59,7 @@ fun ArtistDetailScreen(
     /** The artist's own picture, which is theirs rather than any one record's. */
     artworkUrl: String? = null,
     playing: Boolean = false,
+    isLoading: Boolean = false,
     onBack: () -> Unit,
     onPlayFrom: (Int) -> Unit,
     onFindMore: (String) -> Unit,
@@ -116,9 +118,27 @@ fun ArtistDetailScreen(
                     artist = artist,
                     albumCount = albumCount,
                     artworkUrl = artworkUrl,
+                    isLoading = isLoading,
+                    hasReleases = releases.isNotEmpty(),
                     onPlayFrom = onPlayFrom,
                     onFindMore = onFindMore,
                 )
+            }
+
+            if (isLoading) {
+                item(key = "loading") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.5.dp,
+                            color = Color.White.copy(alpha = 0.8f),
+                        )
+                    }
+                }
             }
 
             if (releases.isNotEmpty()) {
@@ -172,6 +192,8 @@ private fun ArtistHeader(
     artist: LibraryGrouping.Artist,
     albumCount: Int,
     artworkUrl: String?,
+    isLoading: Boolean,
+    hasReleases: Boolean,
     onPlayFrom: (Int) -> Unit,
     onFindMore: (String) -> Unit,
 ) {
@@ -218,62 +240,69 @@ private fun ArtistHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = listOf(
-                        if (albumCount == 1) "1 album" else "$albumCount albums",
-                        if (artist.tracks.size == 1) "1 track" else "${artist.tracks.size} tracks",
-                    ).joinToString("  ·  "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.60f),
-                )
+                if (!isLoading && (albumCount > 0 || artist.tracks.isNotEmpty())) {
+                    Text(
+                        text = listOf(
+                            if (albumCount == 1) "1 album" else "$albumCount albums",
+                            if (artist.tracks.size == 1) "1 track" else "${artist.tracks.size} tracks",
+                        ).joinToString("  ·  "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.60f),
+                    )
+                }
             }
         }
 
-        Row(
-            modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .clickable(enabled = artist.tracks.isNotEmpty()) { onPlayFrom(0) },
-                contentAlignment = Alignment.Center,
+        if (!isLoading) {
+            Row(
+                modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Play artist",
-                    tint = Color.Black,
-                    modifier = Modifier.size(30.dp),
-                )
-            }
+                if (artist.tracks.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable { onPlayFrom(0) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play artist",
+                            tint = Color.Black,
+                            modifier = Modifier.size(30.dp),
+                        )
+                    }
+                }
 
-            Spacer(Modifier.width(12.dp))
-
-            Box(
-                modifier = Modifier
-                    .height(44.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.12f))
-                    .border(0.5.dp, Color.White.copy(alpha = 0.20f), CircleShape)
-                    .clickable { onFindMore(SearchQueries.forArtist(artist.name)) }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.90f),
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Find more",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White.copy(alpha = 0.90f),
-                    )
+                if (!hasReleases) {
+                    Spacer(Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .height(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.20f), CircleShape)
+                            .clickable { onFindMore(SearchQueries.forArtist(artist.name)) }
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.90f),
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Find more",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                                color = Color.White.copy(alpha = 0.90f),
+                            )
+                        }
+                    }
                 }
             }
         }
