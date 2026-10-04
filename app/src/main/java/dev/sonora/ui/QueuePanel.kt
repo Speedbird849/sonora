@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -40,7 +41,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +58,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import dev.sonora.backend.LibraryTrack
+import dev.sonora.backend.SonoraBackend
+import dev.sonora.backend.SonoraPlayer
 import dev.sonora.backend.UpNext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -101,6 +107,10 @@ internal fun QueuePanel(
     var isAnimating by remember { mutableStateOf(false) }
     var isDismissing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    val context = LocalContext.current
+    val settings by SonoraBackend.settings.collectAsState()
+    val autoplayKeySet by SonoraPlayer.autoplayKeys.collectAsState()
 
     val currentOffset = if (isAnimating) animOffsetY.value else dragOffsetY
 
@@ -243,12 +253,27 @@ internal fun QueuePanel(
                 }
             }
 
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { SonoraBackend.setAutoplay(context, !settings.autoplay) }) {
+                    Text(
+                        text = if (settings.autoplay) "Autoplay: on" else "Autoplay: off",
+                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.0.sp),
+                        color = Color.White.copy(alpha = if (settings.autoplay) 0.9f else 0.5f),
+                    )
+                }
+            }
+
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
-            ) {
-                val current = upNext.current
+            ) {                val current = upNext.current
                 if (current != null) {
                     item(key = "now-playing") {
                         QueueHeading("NOW PLAYING")
@@ -310,6 +335,7 @@ internal fun QueuePanel(
                             track = track,
                             isCurrent = false,
                             isPlaying = false,
+                            isAutoplay = track.key in autoplayKeySet,
                             onClick = { onPlayFrom(absolute) },
                             onRemove = { onRemove(absolute) },
                             onDragHandle = { delta ->
@@ -352,6 +378,7 @@ private fun QueueRow(
     onRemove: (() -> Unit)?,
     onDragHandle: ((Float) -> Unit)? = null,
     isHeld: Boolean = false,
+    isAutoplay: Boolean = false,
 ) {
     val rowShape = RoundedCornerShape(12.dp)
     Row(
@@ -408,6 +435,14 @@ private fun QueueRow(
                     color = Color.White.copy(alpha = 0.55f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (isAutoplay) {
+                Text(
+                    text = "AUTOPLAY",
+                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+                    color = Color.White.copy(alpha = 0.4f),
+                    maxLines = 1,
                 )
             }
         }
