@@ -399,6 +399,7 @@ private fun MainTabs(state: BackendState) {
         LaunchedEffect(Unit) { SonoraBackend.refreshPlayHistory(context) }
         LaunchedEffect(Unit) { SonoraBackend.refreshSaved(context) }
         LaunchedEffect(Unit) { SonoraBackend.refreshRecentTracks(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshTaste(context) }
 
         LaunchedEffect(playback.track, playback.isPlaying) {
             while (playback.track != null) {
