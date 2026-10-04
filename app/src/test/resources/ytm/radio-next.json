@@ -83,6 +83,26 @@
                                 ]
                               }
                             }
+                          },
+                          {
+                            "playlistPanelVideoRenderer": {
+                              "videoId": "rel00000004",
+                              "title": { "simpleText": "Unlinked Artist Row" },
+                              "longBylineText": {
+                                "runs": [
+                                  { "text": "DECADR" },
+                                  { "text": " • " },
+                                  { "text": "497M views" },
+                                  { "text": " • " }
+                                ]
+                              },
+                              "thumbnail": {
+                                "thumbnails": [
+                                  { "url": "https://example.test/rel3-large.jpg" }
+                                ]
+                              },
+                              "lengthText": { "simpleText": "3:33" }
+                            }
                           }
                         ]
                       }

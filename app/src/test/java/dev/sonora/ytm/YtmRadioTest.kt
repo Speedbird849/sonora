@@ -18,7 +18,10 @@ class YtmRadioTest {
     fun `reads the panel rows in order and drops the duplicate`() {
         val tracks = parse()
 
-        assertEquals(listOf("seed0000001", "rel00000002", "rel00000003"), tracks.map { it.videoId })
+        assertEquals(
+            listOf("seed0000001", "rel00000002", "rel00000003", "rel00000004"),
+            tracks.map { it.videoId },
+        )
     }
 
     @Test
@@ -41,6 +44,15 @@ class YtmRadioTest {
         assertEquals("Related Two", related.title)
         assertEquals("Another Artist", related.artist)
         assertEquals(125, related.durationSec)
+    }
+
+    @Test
+    fun `an unlinked byline still yields an artist`() {
+        val row = parse().first { it.videoId == "rel00000004" }
+
+        assertEquals("DECADR", row.artist)
+        assertEquals("https://example.test/rel3-large.jpg", row.artworkUrl)
+        assertEquals(213, row.durationSec)
     }
 
     @Test

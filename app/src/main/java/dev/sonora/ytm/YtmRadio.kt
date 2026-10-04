@@ -41,6 +41,9 @@ object YtmRadio {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    /** Runs that are decoration rather than a credit. */
+    private val SEPARATORS = setOf("•", "·", "-", "–", "—", "|", "&")
+
     /**
      * Tracks related to [videoId], or an empty list when YouTube has nothing or refuses.
      *
@@ -54,6 +57,10 @@ object YtmRadio {
             val body = buildJsonObject {
                 put("context", context())
                 put("videoId", JsonPrimitive(videoId))
+                // The radio's own playlist id. Without it the endpoint answers with the queue that
+                // holds only the current track and an automix stub — fifty related tracks come back
+                // only when the request names the generated mix.
+                put("playlistId", JsonPrimitive("RDAMVM$videoId"))
                 put("isAudioOnly", JsonPrimitive(true))
                 // Ask for the radio rather than the plain up-next queue; without it the answer is
                 // an auto-generated continuation that is mostly the same artist's videos.
@@ -69,6 +76,7 @@ object YtmRadio {
         }.onFailure {
             Log.w(TAG, "radio for '$videoId' failed: ${it.message}")
         }.getOrDefault(emptyList())
+            .also { Log.d(TAG, "radio: $videoId -> ${it.size} track(s)") }
     }
 
     /**
@@ -116,7 +124,10 @@ object YtmRadio {
 
         val artistRun = credits.firstOrNull { it.pageType == "MUSIC_PAGE_TYPE_ARTIST" }
         val albumRun = credits.firstOrNull { it.pageType == "MUSIC_PAGE_TYPE_ALBUM" }
-        val artist = artistRun?.text?.trim().orEmpty()
+        // A radio row does not always link its artist, so the first run that is not a separator
+        // stands in. Without it such a row reaches the queue with no artist at all.
+        val artist = artistRun?.text?.trim()?.takeIf { it.isNotEmpty() }
+            ?: credits.firstOrNull { it.text.isNotBlank() && it.text.trim() !in SEPARATORS }?.text?.trim().orEmpty()
 
         return YtmTrack(
             videoId = videoId,
