@@ -96,7 +96,12 @@ object SonoraPlayer {
     private var tracker: PlaybackTracker? = null
 
     /** Keys the engine put on the queue, so a play of one is attributed to Autoplay. */
-    private val autoplayKeys = HashSet<String>()
+    private val autoplayPicks = HashSet<String>()
+
+    private val _autoplayKeys = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Queue keys Autoplay added, for the "Autoplay" label. */
+    val autoplayKeys: StateFlow<Set<String>> = _autoplayKeys.asStateFlow()
 
     private var refillJob: Job? = null
 
@@ -613,7 +618,7 @@ object SonoraPlayer {
             else -> 0L
         }
 
-        val origin = if (mediaId in autoplayKeys) Origin.AUTOPLAY else Origin.USER
+        val origin = if (mediaId in autoplayPicks) Origin.AUTOPLAY else Origin.USER
         scope.launch { SonoraBackend.recordTaste(context, track, listenedMs, duration, origin) }
     }
 
@@ -654,7 +659,8 @@ object SonoraPlayer {
 
             active.addMediaItems(active.mediaItemCount, items)
             _upNext.value = UpNext(queue = queue + playable, index = _upNext.value.index)
-            autoplayKeys += playable.map { it.key }
+            autoplayPicks += playable.map { it.key }
+            _autoplayKeys.value = autoplayPicks.toSet()
             Log.d(TAG, "autoplay: appended ${items.size} track(s)")
         }
     }
