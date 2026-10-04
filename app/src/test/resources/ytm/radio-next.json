@@ -1,0 +1,99 @@
+{
+  "contents": {
+    "singleColumnMusicWatchNextResultsRenderer": {
+      "tabbedRenderer": {
+        "watchNextTabbedResultsRenderer": {
+          "tabs": [
+            {
+              "tabRenderer": {
+                "content": {
+                  "musicQueueRenderer": {
+                    "content": {
+                      "playlistPanelRenderer": {
+                        "contents": [
+                          {
+                            "playlistPanelVideoWrapperRenderer": {
+                              "primaryRenderer": {
+                                "playlistPanelVideoRenderer": {
+                                  "videoId": "seed0000001",
+                                  "title": {
+                                    "runs": [{ "text": "Seed Song" }]
+                                  },
+                                  "longBylineText": {
+                                    "runs": [
+                                      { "text": "Seed Artist", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCseedartist", "browseEndpointContextSupportedConfigs": { "browseEndpointContextMusicConfig": { "pageType": "MUSIC_PAGE_TYPE_ARTIST" } } } } },
+                                      { "text": " • " },
+                                      { "text": "Seed Album", "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREseedalbum", "browseEndpointContextSupportedConfigs": { "browseEndpointContextMusicConfig": { "pageType": "MUSIC_PAGE_TYPE_ALBUM" } } } } }
+                                    ]
+                                  },
+                                  "thumbnail": {
+                                    "thumbnails": [
+                                      { "url": "https://example.test/seed-small.jpg" },
+                                      { "url": "https://example.test/seed-large.jpg" }
+                                    ]
+                                  },
+                                  "lengthText": { "simpleText": "3:58" }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "playlistPanelVideoRenderer": {
+                              "videoId": "rel00000002",
+                              "title": {
+                                "runs": [{ "text": "Related One" }]
+                              },
+                              "longBylineText": {
+                                "runs": [
+                                  { "text": "Related Artist", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCrelated", "browseEndpointContextSupportedConfigs": { "browseEndpointContextMusicConfig": { "pageType": "MUSIC_PAGE_TYPE_ARTIST" } } } } }
+                                ]
+                              },
+                              "thumbnail": {
+                                "thumbnails": [
+                                  { "url": "https://example.test/rel-large.jpg" }
+                                ]
+                              },
+                              "lengthText": { "simpleText": "4:12" }
+                            }
+                          },
+                          {
+                            "playlistPanelVideoRenderer": {
+                              "videoId": "rel00000003",
+                              "title": { "simpleText": "Related Two" },
+                              "shortBylineText": {
+                                "runs": [
+                                  { "text": "Another Artist", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCanother", "browseEndpointContextSupportedConfigs": { "browseEndpointContextMusicConfig": { "pageType": "MUSIC_PAGE_TYPE_ARTIST" } } } } }
+                                ]
+                              },
+                              "thumbnail": {
+                                "thumbnails": [
+                                  { "url": "https://example.test/rel2-large.jpg" }
+                                ]
+                              },
+                              "lengthText": { "simpleText": "2:05" }
+                            }
+                          },
+                          {
+                            "playlistPanelVideoRenderer": {
+                              "videoId": "rel00000002",
+                              "title": { "runs": [{ "text": "Related One (duplicate)" }] },
+                              "longBylineText": {
+                                "runs": [
+                                  { "text": "Related Artist" }
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
