@@ -128,3 +128,38 @@ Every constant is in `TasteEngine.kt` (`HALF_LIFE_*`, signal thresholds, score w
 `SOFTMAX_TEMPERATURE`, `RECENT_WINDOW`, `MAX_EDGES_PER_NODE`, `MAX_TRACKS`). Change one,
 run `./gradlew :app:testDebugUnitTest`, and watch the simulation test in
 `TasteEngineSimulationTest.kt` for the in-cluster / exploration balance.
+
+## Wiring
+
+- `backend/taste/TasteTracks.kt` maps a `LibraryTrack` to a `TrackRef` and back. The album is
+  carried as the tag set, because the catalogue the app reads has no genre.
+- `PlaybackTracker` is attached to the `MediaController` in `SonoraPlayer.connect`, not to the
+  `ExoPlayer` in `PlaybackService`. The player is built in the service, but the controller is its
+  in-process handle, it is on the main thread, and `SonoraPlayer` is where the queue and the
+  resolution of a pick already live — attaching anywhere else would split one queue across two
+  owners.
+- `SonoraPlayer.maybeRefill` appends picks when two items remain after the current one, guarded
+  against concurrent refills and against a queue that changed while the radio was answering.
+  Keys it appended are published as `SonoraPlayer.autoplayKeys`, which is what the queue labels
+  and what makes a play of one count at half weight.
+- `PlaybackService.onTaskRemoved` / `onDestroy` and `SonoraService.onDestroy` flush the model so a
+  process death cannot lose the last few seconds of learning.
+
+## Seeding
+
+A Spotify import can optionally seed the model (`SonoraBackend.seedTaste`): each matched track is
+recorded as a completed user play, spaced an hour apart so **no transition edge forms**. An import
+says "these songs are mine", not "these songs play in this order", and letting the sequence teach
+the graph would bake a playlist's arbitrary ordering into Autoplay.
+
+## Persistence and bounds
+
+- `taste.json` is written debounced (3 s) and atomically (temp + rename), with the previous
+  document kept as `taste.json.bak`. A corrupt main falls back to the backup, then to an empty
+  model, preserving the unreadable file.
+- The save streams the JSON rather than building a string, omits defaults and nulls, and does not
+  re-parse the previous document to back it up.
+- The track map is capped at 20,000, dropping the least-recently-played low-signal tracks first.
+- A 20,000-track steady-state save is asserted under 100 ms in `TasteHardeningTest`; the write is
+  always off the main thread (`TasteStore`'s IO scope, or an explicit IO dispatcher).
+
