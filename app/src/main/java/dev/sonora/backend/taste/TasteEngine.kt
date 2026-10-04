@@ -463,6 +463,7 @@ class TasteEngine(
             artist = new.artist.ifBlank { old.artist },
             ytmId = new.ytmId ?: old.ytmId,
             localPath = new.localPath ?: old.localPath,
+            artworkUrl = new.artworkUrl ?: old.artworkUrl,
             durationMs = new.durationMs ?: old.durationMs,
             tags = (old.tags + new.tags).distinct(),
         )

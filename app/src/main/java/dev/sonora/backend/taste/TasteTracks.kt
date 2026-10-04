@@ -22,6 +22,7 @@ fun LibraryTrack.toTrackRef(): TrackRef = TrackRef.of(
     durationMs = remote?.durationSec?.let { it * 1000L },
     ytmId = remote?.videoId,
     localPath = file?.absolutePath,
+    artworkUrl = artworkUrl ?: remote?.artworkUrl,
 )
 
 fun YtmTrack.toTrackRef(): TrackRef = TrackRef.of(
@@ -30,6 +31,7 @@ fun YtmTrack.toTrackRef(): TrackRef = TrackRef.of(
     tags = listOfNotNull(album?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }),
     durationMs = durationSec?.let { it * 1000L },
     ytmId = videoId,
+    artworkUrl = artworkUrl,
 )
 
 /**
@@ -48,6 +50,7 @@ fun TrackRef.toLibraryTrack(): LibraryTrack? {
             artist = artist,
             album = tags.firstOrNull(),
             size = local.length(),
+            artworkUrl = artworkUrl,
         )
     }
 
@@ -58,6 +61,7 @@ fun TrackRef.toLibraryTrack(): LibraryTrack? {
             title = title,
             artist = artist,
             album = null,
+            artworkUrl = artworkUrl,
             durationSec = durationMs?.let { (it / 1000L).toInt() },
         ),
     )

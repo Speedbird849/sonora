@@ -24,6 +24,14 @@ data class TrackRef(
     val durationMs: Long? = null,
     val ytmId: String? = null,
     val localPath: String? = null,
+    /**
+     * Where the cover lives, when it is known.
+     *
+     * Carried so an Autoplay pick can be drawn like anything else in the queue: a pick that reaches
+     * the player without a picture is a row with a blank square, which is exactly what a cover is
+     * for.
+     */
+    val artworkUrl: String? = null,
 ) {
     companion object {
 
@@ -35,6 +43,7 @@ data class TrackRef(
             durationMs: Long? = null,
             ytmId: String? = null,
             localPath: String? = null,
+            artworkUrl: String? = null,
         ): TrackRef {
             val cleanArtist = artist.orEmpty().trim()
             return TrackRef(
@@ -46,6 +55,7 @@ data class TrackRef(
                 durationMs = durationMs,
                 ytmId = ytmId,
                 localPath = localPath,
+                artworkUrl = artworkUrl,
             )
         }
     }
