@@ -26,6 +26,8 @@ data class TasteModel(
     val tracks: Map<String, TrackEntry> = emptyMap(),
     /** `prev -> cur -> weight`, the core of "what follows what". */
     val edges: Map<String, Map<String, Decayed>> = emptyMap(),
+    /** `prev -> cur -> times`, so a transition can be shown as "×14" rather than a weight. */
+    val edgeCounts: Map<String, Map<String, Int>> = emptyMap(),
     val artists: Map<String, Decayed> = emptyMap(),
     /** Signal split across a track's tags, keyed by the tag itself. */
     val tags: Map<String, Decayed> = emptyMap(),
