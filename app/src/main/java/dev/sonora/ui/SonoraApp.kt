@@ -351,15 +351,18 @@ private fun MainTabs(state: BackendState) {
         // The write half is handed in rather than reached for, because creating a playlist needs a
         // Context this object only has once the tabs are being drawn.
         val importRunner = remember {
-            SpotifyImportRunner { draft ->
-                SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
+            SpotifyImportRunner { draft, seed ->
+                val id = SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
                     ?: error("the import produced no playlist")
+                if (seed) SonoraBackend.seedTaste(context, draft.matched)
+                id
             }
         }
 
         // Home first: it is where resuming and finding new music both start.
         var tab by remember { mutableStateOf(MainTab.Home) }
         var playerOpen by remember { mutableStateOf(false) }
+        var tasteOpen by remember { mutableStateOf(false) }
         var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
         // The Spotify import is a sequence with its own state, so it outlives the screen that
         // opened it — a listener who switches tabs mid-import should not lose their progress.
@@ -399,6 +402,7 @@ private fun MainTabs(state: BackendState) {
         LaunchedEffect(Unit) { SonoraBackend.refreshPlayHistory(context) }
         LaunchedEffect(Unit) { SonoraBackend.refreshSaved(context) }
         LaunchedEffect(Unit) { SonoraBackend.refreshRecentTracks(context) }
+        LaunchedEffect(Unit) { SonoraBackend.refreshTaste(context) }
 
         LaunchedEffect(playback.track, playback.isPlaying) {
             while (playback.track != null) {
@@ -501,7 +505,7 @@ private fun MainTabs(state: BackendState) {
                         .fillMaxSize()
                         .statusBarsPadding(),
                 ) {
-                    SettingsScreen()
+                    SettingsScreen(onOpenTaste = { tasteOpen = true })
                 }
 
                 // The connect screen, reachable at any time, and showing the session once
@@ -709,12 +713,24 @@ private fun MainTabs(state: BackendState) {
             }
         }
 
+        if (tasteOpen) {
+            BackHandler { tasteOpen = false }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding(),
+            ) {
+                TasteScreen(onBack = { tasteOpen = false })
+            }
+        }
+
         if (spotifyImport) {
             SpotifyImportSheet(
                 state = importRunner.state.collectAsState().value,
                 onStart = { link -> importRunner.start(scope, link) },
-                onConfirm = { draft ->
-                    scope.launch { importRunner.confirm(draft) }
+                onConfirm = { draft, seed ->
+                    scope.launch { importRunner.confirm(draft, seed) }
                 },
                 onDismiss = {
                     spotifyImport = false

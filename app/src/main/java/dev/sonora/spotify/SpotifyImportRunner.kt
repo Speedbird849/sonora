@@ -85,7 +85,7 @@ data class SpotifyDraft(
  * playlist store, and a caller that already has one should not be handed a callback to supply it
  * twice.
  */
-class SpotifyImportRunner(private val onWrite: suspend (SpotifyDraft) -> String) {
+class SpotifyImportRunner(private val onWrite: suspend (SpotifyDraft, Boolean) -> String) {
 
     private val _state = MutableStateFlow<SpotifyImportState>(SpotifyImportState.Idle)
 
@@ -144,13 +144,15 @@ class SpotifyImportRunner(private val onWrite: suspend (SpotifyDraft) -> String)
      *
      * Returns the new playlist's id, or null when there was nothing to write. The caller supplies
      * that half because creating a playlist needs a Context this does not hold.
+     *
+     * @param seedTaste whether the caller should also fold these tracks into the taste model.
      */
-    suspend fun confirm(draft: SpotifyDraft): String? {
+    suspend fun confirm(draft: SpotifyDraft, seedTaste: Boolean = false): String? {
         val tracks = draft.matched
         if (tracks.isEmpty()) return null
 
         _state.value = SpotifyImportState.Writing(0, tracks.size)
-        val id = onWrite(draft)
+        val id = onWrite(draft, seedTaste)
         _state.value = SpotifyImportState.Done(id, tracks.size, tracks.size)
         return id
     }

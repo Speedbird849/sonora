@@ -39,4 +39,22 @@ data class Settings(
      * and already the user's. Set only when someone wants to share something else.
      */
     val shareTreeUri: String? = null,
+
+    /**
+     * Whether the queue tops itself up from the taste model when it runs low.
+     *
+     * On by default: the point of the model is that the music keeps going. Turning it off leaves the
+     * listening history and the Taste screen in place, so the feature can be paused without being
+     * erased.
+     */
+    val autoplay: Boolean = true,
+
+    /**
+     * Whether playback is played but *not* learned from.
+     *
+     * Separate from [autoplay]: a listener may want the queue to keep going without this session
+     * shaping what it plays next, which is what listening to something unrepresentative on purpose
+     * needs.
+     */
+    val pauseLearning: Boolean = false,
 )

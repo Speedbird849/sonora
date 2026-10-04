@@ -80,6 +80,11 @@ class SonoraService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        SonoraBackend.flushTaste()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         scope.cancel()
 
@@ -90,6 +95,8 @@ class SonoraService : Service() {
         // Called when the service is genuinely going away. Uses the session-only path, not the
         // UI's disconnect(), which would call back into stopService.
         SonoraBackend.onServiceDestroyed()
+        // The process may not survive the service; write any pending taste before it goes.
+        SonoraBackend.flushTaste()
         super.onDestroy()
     }
 

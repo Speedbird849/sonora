@@ -8,6 +8,14 @@ import android.provider.DocumentsContract
 import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import dev.sonora.backend.taste.Origin
+import dev.sonora.backend.taste.TasteEngine
+import dev.sonora.backend.taste.TasteModel
+import dev.sonora.backend.taste.TasteStore
+import dev.sonora.backend.taste.TasteTransfer
+import dev.sonora.backend.taste.TrackRef
+import dev.sonora.backend.taste.toLibraryTrack
+import dev.sonora.backend.taste.toTrackRef
 import dev.sonora.metadata.CoverArtCache
 import dev.sonora.metadata.CoverArtTransport
 import dev.sonora.metadata.Discovery
@@ -21,6 +29,7 @@ import dev.sonora.ytm.YtmBrowse
 import dev.sonora.ytm.YtmCatalog
 import dev.sonora.ytm.YtmCategory
 import dev.sonora.ytm.YtmCatalogSearch
+import dev.sonora.ytm.YtmRadio
 import dev.sonora.ytm.YtmSearch
 import dev.sonora.ytm.YtmShelves
 import dev.sonora.ytm.YtmTrack
@@ -36,6 +45,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -79,6 +89,14 @@ object SonoraBackend {
     private const val SETTINGS_FILE = "settings.json"
     private const val SEARCH_HISTORY_FILE = "searches.json"
     private const val PLAY_HISTORY_FILE = "plays.json"
+    private const val TASTE_FILE = "taste.json"
+
+    /** Synthetic plays from an import are spaced this far apart so no edge can form. */
+    private const val SEED_SPACING_MS = 60L * 60L * 1000L
+
+    /** A seeded track with no known length is recorded as a three-minute listen. */
+    private const val SEED_DEFAULT_DURATION_MS = 180_000L
+
     private const val METADATA_CACHE_DIRECTORY = "metadata"
     private const val COVER_ART_CACHE_DIRECTORY = "covers"
     private const val MAX_FILENAME_LENGTH = 180
@@ -359,6 +377,174 @@ object SonoraBackend {
         SonoraPlayer.onTrackStarted = { track -> recordPlay(appContext, track) }
 
         scope.launch { _playHistory.value = playHistoryStore(appContext).load() }
+    }
+
+    // ---- Taste engine -------------------------------------------------------------------------
+
+    @Volatile
+    private var tasteEngine: TasteEngine? = null
+
+    private val _taste = MutableStateFlow(TasteModel())
+
+    /** The learned model, for the Taste screen. Re-published after every change. */
+    val tasteState: StateFlow<TasteModel> = _taste.asStateFlow()
+
+    /**
+     * The taste engine, built on first use.
+     *
+     * Lazy because it needs a Context for `filesDir`, and the backend deliberately exists without
+     * one. The same instance is kept for the process so the model is read from disk once.
+     */
+    fun taste(context: Context): TasteEngine = tasteEngine ?: synchronized(this) {
+        tasteEngine ?: TasteEngine(TasteStore(File(context.filesDir, TASTE_FILE)))
+            .also { tasteEngine = it }
+    }
+
+    /** Reads the model off disk and publishes it, so the screen opens with real numbers. */
+    fun refreshTaste(context: Context) {
+        scope.launch { _taste.value = taste(context).snapshot() }
+    }
+
+    /**
+     * Records one finished play.
+     *
+     * @param durationMs 0 when the player never knew the length.
+     */
+    suspend fun recordTaste(
+        context: Context,
+        track: LibraryTrack,
+        listenedMs: Long,
+        durationMs: Long,
+        origin: Origin,
+    ) {
+        if (_settings.value.pauseLearning) return
+
+        val engine = taste(context)
+        engine.recordPlay(
+            ref = track.toTrackRef(),
+            listenedMs = listenedMs,
+            durationMs = durationMs.takeIf { it > 0L },
+            origin = origin,
+            liked = track.key in Playlists.likedKeys(_playlists.value),
+        )
+        _taste.value = engine.snapshot()
+    }
+
+    /**
+     * Autoplay's next picks, as things the player can open.
+     *
+     * The engine decides *what*; the mapping to a file or a stream decides *how*. A pick with a
+     * local lossless file behind it is preferred there, so this never has to choose.
+     */
+    suspend fun autoplayNext(context: Context, cur: TrackRef?, count: Int): List<LibraryTrack> {
+        val engine = taste(context)
+        // Scoring walks the model; the radio call inside `next` is non-blocking, so the whole pick
+        // runs off the main thread and the refill never competes with a frame.
+        val refs = withContext(Dispatchers.Default) {
+            engine.next(cur, count) { seed ->
+                val videoId = seed?.ytmId ?: cur?.ytmId ?: return@next emptyList()
+                YtmRadio.related(videoId).map { it.toTrackRef() }
+            }
+        }
+        return refs.mapNotNull { it.toLibraryTrack() }
+    }
+
+    /** Wipes the learned model. */
+    fun resetTaste(context: Context) {
+        scope.launch {
+            val engine = taste(context)
+            engine.reset()
+            _taste.value = engine.snapshot()
+        }
+    }
+
+    /**
+     * Seeds the model from an imported playlist.
+     *
+     * Each track is recorded as a completed play by the user, spaced an hour apart so no transition
+     * edge forms — an import says "these songs are mine", not "these songs play in this order", and
+     * letting the sequence teach the graph would put a playlist's arbitrary ordering into Autoplay.
+     * The spacing also keeps the import out of the recent window's way: the last synthetic play is
+     * an hour old, so the next real play does not form an edge with it either.
+     */
+    fun seedTaste(context: Context, tracks: List<LibraryTrack>) {
+        if (tracks.isEmpty()) return
+
+        scope.launch(Dispatchers.IO) {
+            val engine = taste(context)
+            val now = System.currentTimeMillis()
+            val refs = tracks.map { it.toTrackRef() }.distinctBy { it.key }
+
+            refs.forEachIndexed { index, ref ->
+                val duration = ref.durationMs ?: SEED_DEFAULT_DURATION_MS
+                engine.recordPlay(
+                    ref = ref,
+                    listenedMs = duration,
+                    durationMs = duration,
+                    origin = Origin.USER,
+                    liked = false,
+                    now = now - (refs.size - index).toLong() * SEED_SPACING_MS,
+                )
+            }
+            _taste.value = engine.snapshot()
+        }
+    }
+
+    /** Writes the model to a document the user picked, for backup or to move to another device. */
+    fun exportTaste(context: Context, uri: Uri) {
+        scope.launch {
+            val text = TasteTransfer.encode(taste(context).snapshot())
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+            }.onFailure { Log.w(TAG, "could not export taste: ${it.message}") }
+        }
+    }
+
+    /** Reads a document the user picked and replaces the model with it. */
+    fun importTaste(context: Context, uri: Uri) {
+        scope.launch {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull() ?: return@launch
+
+            val imported = TasteTransfer.decode(text) ?: run {
+                Log.w(TAG, "imported taste document did not parse")
+                return@launch
+            }
+
+            val engine = taste(context)
+            engine.replace(imported)
+            _taste.value = engine.snapshot()
+        }
+    }
+
+    /**
+     * Writes any queued model before the process goes away.
+     *
+     * Blocking on an IO dispatcher on purpose: this is called from a service teardown, where a
+     * fire-and-forget write would be cancelled along with the process.
+     */
+    fun flushTaste() {
+        val engine = tasteEngine ?: return
+        runBlocking(Dispatchers.IO) { engine.flush() }
+    }
+
+    fun setAutoplay(context: Context, enabled: Boolean) {
+        updateSettings(context) { it.copy(autoplay = enabled) }
+    }
+
+    fun setPauseLearning(context: Context, enabled: Boolean) {
+        updateSettings(context) { it.copy(pauseLearning = enabled) }
+    }
+
+    private fun updateSettings(context: Context, edit: (Settings) -> Settings) {
+        scope.launch {
+            val updated = edit(_settings.value)
+            if (updated == _settings.value) return@launch
+
+            settingsStore(context).save(updated)
+            _settings.value = updated
+        }
     }
 
     /**
@@ -702,7 +888,17 @@ object SonoraBackend {
      */
     fun toggleLiked(context: Context, track: LibraryTrack) {
         track.remote?.let { save(context, it, playlistIds = listOf(Playlists.LIKED_ID)) }
+
+        val nowLiked = track.key !in Playlists.likedKeys(_playlists.value)
         editPlaylists(context) { Playlists.toggleLiked(it, track.key) }
+
+        // The taste model keeps the like too, so a like shapes what Autoplay proposes even for a
+        // track that has never been played through.
+        scope.launch {
+            val engine = taste(context)
+            engine.setLiked(track.toTrackRef().key, nowLiked)
+            _taste.value = engine.snapshot()
+        }
     }
 
     /**

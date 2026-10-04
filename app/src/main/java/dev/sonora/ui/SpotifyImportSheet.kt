@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,7 +64,7 @@ import dev.sonora.spotify.SpotifyImportState
 internal fun SpotifyImportSheet(
     state: SpotifyImportState,
     onStart: (String) -> Unit,
-    onConfirm: (SpotifyDraft) -> Unit,
+    onConfirm: (SpotifyDraft, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     SonoraSheet(onDismiss = onDismiss) {
@@ -94,7 +95,7 @@ internal fun SpotifyImportSheet(
 
                 is SpotifyImportState.Ready -> ImportPreview(
                     draft = state.draft,
-                    onConfirm = { onConfirm(state.draft) },
+                    onConfirm = { seed -> onConfirm(state.draft, seed) },
                 )
 
                 is SpotifyImportState.Done -> Column(
@@ -211,7 +212,8 @@ private fun Working(message: String, fraction: Float?) {
 }
 
 @Composable
-private fun ImportPreview(draft: SpotifyDraft, onConfirm: () -> Unit) {
+private fun ImportPreview(draft: SpotifyDraft, onConfirm: (Boolean) -> Unit) {
+    var seedTaste by remember { mutableStateOf(true) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -301,8 +303,28 @@ private fun ImportPreview(draft: SpotifyDraft, onConfirm: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
 
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { seedTaste = !seedTaste },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = seedTaste, onCheckedChange = { seedTaste = it })
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Use imported playlists to seed taste", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Teaches Autoplay from these tracks without forming a playlist order.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
         Button(
-            onClick = onConfirm,
+            onClick = { onConfirm(seedTaste) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(13.dp),
         ) {

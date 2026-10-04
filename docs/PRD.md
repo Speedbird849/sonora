@@ -142,6 +142,8 @@ consequences of using them as references.
 | Background playback + lock-screen controls         | ✅  |       |
 | Reshare downloaded files                           | ✅  |       |
 | Playlists                                          | ✅  |       |
+| On-device taste profile + Autoplay                 | ✅  |       |
+| Taste export / import                              | ✅  |       |
 | Lyrics display                                     |     | ✅    |
 | Fake-FLAC / bitrate authenticity analysis          |     | ✅    |
 | Chat / private messages with peers                 |     | ✅    |
@@ -522,3 +524,44 @@ bounded pool for F relays fixed the starvation.
 
 **Live result:** one search candidate completed a **4,258,304-byte download** over the NATed
 host, with no UPnP and no port forwarding. The mobile-data premise survives.
+
+---
+
+## 16. On-device taste engine & Autoplay
+
+An on-device listening model that records what is played, learns which track follows which, and
+keeps the queue going. No server, no account, no network beyond the existing YouTube Music client.
+
+- **Recording** — `playback/PlaybackTracker` banks real played time (gated by `isPlaying`, so a
+  pause counts for nothing) and finalizes a play on transition, end, detach and service teardown.
+  The signal is derived from the played ratio and the absolute time: a completion is +1, a partial
+  +0.4, a skip negative. A transition `prev -> cur` is learned only within a 30-minute session
+  window, so a track resumed the next morning does not claim to follow the one before it.
+- **Model** — `backend/taste/TasteEngine` keeps decaying counters (`Decayed`) for tracks, artists,
+  tags and transitions, persisted to `taste.json` (debounced, atomic, with a `.bak`). Identity is a
+  normalized `artist|title`, so the YouTube Music and Soulseek copies of one song are one track.
+- **Autoplay** — `TasteEngine.next` pools the current track's strongest transitions, the favourite
+  artists' completed catalogue, and the YouTube Music radio, excludes the last 40 plays, scores the
+  candidates (transition, artist and tag affinity, familiarity, likes, novelty, skip rate and
+  artist repetition), and samples the top 8 with a softmax. `SonoraPlayer` appends the picks when
+  the queue is nearly done, resolving a local lossless file where one exists and a stream otherwise.
+  It never reorders or removes what the listener queued.
+- **Controls** — Autoplay and Pause-learning toggles, a Reset, and a Taste screen (top artists,
+  transitions, tags, skips) with export/import through SAF.
+
+Full algorithm, constants and tuning guide: [TASTE.md](TASTE.md).
+
+### D13 — Taste engine stays on device · **Decided**
+
+**Context.** A taste model is a listening history, and a listening history is the most sensitive
+data the app would ever hold. A server-side model would also be the only piece of the app that
+needs a backend, which the rest of the architecture deliberately avoids (D9, D10).
+
+**Decision (2026-10-05): on-device, in-process.** The model is a JSON document in `filesDir`, read
+and written behind one `Mutex`, scored by pure Kotlin with an injected clock and `Random`. It is
+never transmitted; the only way it leaves the device is the user's own export. The engine has no
+Android imports, so every rule and the whole scoring loop is covered by JVM tests.
+
+**Consequence.** Autoplay's exploration source is the existing YouTube Music radio wrapper, so no
+new service or credential is introduced. The cost is that a fresh install starts from the radio
+until the model has something to say — which is the cold-start path the engine is tested for.
