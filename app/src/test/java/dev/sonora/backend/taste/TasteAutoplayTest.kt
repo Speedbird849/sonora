@@ -114,6 +114,35 @@ class TasteAutoplayTest {
     }
 
     @Test
+    fun `a skipped target drops below a track that keeps its credit`() = runBlocking {
+        val engine = engine(seed = 5)
+        val a = ref("A", "Artist A")
+        val good = ref("Good", "Artist B")
+        val skipped = ref("Skipped", "Artist C")
+
+        var at = 0L
+        repeat(6) {
+            engine.play(a, at)
+            engine.play(good, at + 1_000)
+            at += 3_000
+        }
+        repeat(6) {
+            engine.play(a, at)
+            engine.recordPlay(
+                ref = skipped,
+                listenedMs = 5_000,
+                durationMs = 200_000,
+                now = at + 1_000,
+            )
+            at += 3_000
+        }
+
+        val picked = engine.pick(a, 1)
+
+        assertEquals(good.key, picked.first().key)
+    }
+
+    @Test
     fun `a same-artist streak yields to a different artist`() = runBlocking {
         val engine = engine(seed = 3)
 
