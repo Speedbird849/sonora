@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -29,7 +30,7 @@ import dev.sonora.backend.MusicDirectory
 import dev.sonora.backend.SonoraBackend
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onOpenTaste: () -> Unit = {}) {
     val context = LocalContext.current
     val settings by SonoraBackend.settings.collectAsState()
 
@@ -89,7 +90,9 @@ fun SettingsScreen() {
             modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
         )
 
-        SettingsGroup(header = "Library") {
+        SettingsGroup(
+            header = "Library",
+        ) {
             SettingsRow(
                 icon = Icons.Filled.LibraryMusic,
                 title = "Include this device's music",
@@ -103,6 +106,29 @@ fun SettingsScreen() {
                 onClick = {
                     SonoraBackend.setIncludeDeviceMusic(context, !settings.includeDeviceMusic)
                 },
+            )
+        }
+
+        SettingsGroup(
+            header = "Taste",
+            footer = "Learned on this device from what you play. Never sent anywhere.",
+        ) {
+            SettingsRow(
+                icon = Icons.Rounded.AutoAwesome,
+                title = "Taste profile",
+                subtitle = "Your top artists, transitions and skips.",
+                onClick = onOpenTaste,
+            )
+
+            RowDivider()
+
+            SettingsRow(
+                title = "Autoplay",
+                subtitle = "Top the queue up from what you listen to.",
+                trailing = {
+                    SettingSwitch(settings.autoplay) { SonoraBackend.setAutoplay(context, it) }
+                },
+                onClick = { SonoraBackend.setAutoplay(context, !settings.autoplay) },
             )
         }
 
