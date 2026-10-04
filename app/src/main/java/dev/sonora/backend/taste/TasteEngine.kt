@@ -161,12 +161,12 @@ class TasteEngine(
         cur?.let { excluded += it.key }
 
         val pool = buildCandidates(snapshot, cur, now)
-        val needExternal = pool.size < count
 
-        if (needExternal) {
-            val radio = runCatching { external(cur) }.getOrDefault(emptyList())
-            for (ref in radio) if (pool.none { it.key == ref.key }) pool += ref
-        }
+        // The radio is always consulted, not only when the pool is short: it is the exploration
+        // source, and a pool that is already full of the familiar is exactly the state that needs
+        // something new put in front of it.
+        val radio = runCatching { external(cur) }.getOrDefault(emptyList())
+        for (ref in radio) if (pool.none { it.key == ref.key }) pool += ref
 
         // The recent window is a preference, not a veto: a model smaller than the window would
         // otherwise have every candidate excluded and fall through to an unranked list, which is
