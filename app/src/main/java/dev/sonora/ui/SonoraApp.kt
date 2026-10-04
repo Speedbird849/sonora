@@ -360,6 +360,7 @@ private fun MainTabs(state: BackendState) {
         // Home first: it is where resuming and finding new music both start.
         var tab by remember { mutableStateOf(MainTab.Home) }
         var playerOpen by remember { mutableStateOf(false) }
+        var tasteOpen by remember { mutableStateOf(false) }
         var addTarget by remember { mutableStateOf<LibraryTrack?>(null) }
         // The Spotify import is a sequence with its own state, so it outlives the screen that
         // opened it — a listener who switches tabs mid-import should not lose their progress.
@@ -502,7 +503,7 @@ private fun MainTabs(state: BackendState) {
                         .fillMaxSize()
                         .statusBarsPadding(),
                 ) {
-                    SettingsScreen()
+                    SettingsScreen(onOpenTaste = { tasteOpen = true })
                 }
 
                 // The connect screen, reachable at any time, and showing the session once
@@ -707,6 +708,18 @@ private fun MainTabs(state: BackendState) {
                         playerOpen = false
                     },
                 )
+            }
+        }
+
+        if (tasteOpen) {
+            BackHandler { tasteOpen = false }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding(),
+            ) {
+                TasteScreen(onBack = { tasteOpen = false })
             }
         }
 
