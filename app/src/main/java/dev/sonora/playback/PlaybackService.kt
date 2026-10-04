@@ -10,6 +10,7 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dev.sonora.R
+import dev.sonora.backend.SonoraBackend
 import dev.sonora.ytm.YtmStream
 
 /**
@@ -87,7 +88,18 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
+    /**
+     * The task was swiped away. The process may be killed next, so the taste model is written now
+     * rather than left to the debounce.
+     */
+    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+        SonoraBackend.flushTaste()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
+        SonoraBackend.flushTaste()
+
         session?.run {
             player.release()
             release()
