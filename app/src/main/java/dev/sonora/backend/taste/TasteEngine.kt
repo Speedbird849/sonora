@@ -1,5 +1,8 @@
 package dev.sonora.backend.taste
 
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.tanh
 import kotlin.random.Random
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -112,6 +115,214 @@ class TasteEngine(
             model = empty
             store.writeNow(empty)
         }
+    }
+
+    /**
+     * Picks the next [count] tracks to play after [cur].
+     *
+     * Three sources feed one pool: what has followed [cur] before, what the listener's favourite
+     * artists have had completed, and [external] — the YouTube Music radio, which is the only source
+     * that knows anything when the model is empty and the only one that can take the queue somewhere
+     * new. The pool is filtered (no repeats, nothing from the recent window), scored, and sampled.
+     *
+     * Sampling rather than sorting is the point: a strictly best-first queue is the same ten tracks
+     * in the same order every time, and taste is not that. Temperature keeps a good-but-not-top pick
+     * reachable without making the choice arbitrary.
+     *
+     * @param external seeded with a track to find related music for; called only when the pool alone
+     *   cannot fill the batch.
+     */
+    suspend fun next(
+        cur: TrackRef?,
+        count: Int,
+        external: suspend (TrackRef?) -> List<TrackRef>,
+    ): List<TrackRef> {
+        if (count <= 0) return emptyList()
+
+        val snapshot = model
+        val now = clock()
+
+        // Cold start: there is nothing to score, so the radio's own order is the best answer there
+        // is. Scoring an empty model would just shuffle a list that is already ranked.
+        if (snapshot.tracks.isEmpty()) {
+            val radio = runCatching { external(cur) }.getOrDefault(emptyList())
+            return radio.filterNot { it.key == cur?.key }.distinctBy { it.key }.take(count)
+        }
+
+        val excluded = snapshot.recent.takeLast(RECENT_WINDOW).toMutableSet()
+        cur?.let { excluded += it.key }
+
+        val pool = buildCandidates(snapshot, cur, now)
+        val needExternal = pool.size < count
+
+        if (needExternal) {
+            val radio = runCatching { external(cur) }.getOrDefault(emptyList())
+            for (ref in radio) if (pool.none { it.key == ref.key }) pool += ref
+        }
+
+        // The recent window is a preference, not a veto: a model smaller than the window would
+        // otherwise have every candidate excluded and fall through to an unranked list, which is
+        // exactly the deterministic behaviour this is meant to avoid.
+        val ranked = pool.filterNot { it.key in excluded }
+        val eligible = ranked.ifEmpty { pool.filterNot { it.key == cur?.key } }
+        if (eligible.isEmpty()) return emptyList()
+
+        val picked = mutableListOf<TrackRef>()
+        val context = snapshot.recent.toMutableList()
+        var previous = previousOf(snapshot.recent, cur?.key)
+        var current = cur
+
+        repeat(count) {
+            val candidates = eligible.filterNot { ref -> picked.any { it.key == ref.key } }
+            if (candidates.isEmpty()) return@repeat
+
+            val scored = candidates.map { ref ->
+                ref to score(
+                    candidate = ref,
+                    currentKey = current?.key,
+                    previousKey = previous,
+                    model = snapshot,
+                    context = context,
+                    now = now,
+                )
+            }
+
+            val choice = sample(scored, MODEL_TOP) ?: return@repeat
+            picked += choice
+            previous = current?.key
+            current = choice
+            context += choice.key
+        }
+
+        return picked
+    }
+
+    /** `prev -> prev-prev`, read from the recorded order rather than kept as extra state. */
+    private fun previousOf(recent: List<String>, curKey: String?): String? {
+        if (curKey == null) return recent.lastOrNull()
+        val index = recent.indexOfLast { it == curKey }
+        return if (index > 0) recent[index - 1] else null
+    }
+
+    /**
+     * Everything worth considering: strong transitions out of [cur], completed tracks by the
+     * strongest artists, and anything the listener has liked. Deduplicated and capped, so the score
+     * is computed over a bounded set rather than the whole model.
+     */
+    private fun buildCandidates(model: TasteModel, cur: TrackRef?, now: Long): MutableList<TrackRef> {
+        val pool = mutableListOf<TrackRef>()
+        val seen = mutableSetOf<String>()
+
+        fun add(ref: TrackRef?) {
+            if (ref != null && seen.add(ref.key)) pool += ref
+        }
+
+        cur?.let { seed ->
+            model.edges[seed.key].orEmpty()
+                .map { (to, weight) -> to to weight.at(now, HALF_LIFE_EDGE) }
+                .filter { (_, decayed) -> decayed > 0.0 }
+                .sortedByDescending { (_, decayed) -> decayed }
+                .take(CANDIDATE_EDGES)
+                .forEach { (to, _) -> add(model.tracks[to]?.ref) }
+        }
+
+        // The listener's strongest artists, and one step of their catalogue that was actually
+        // finished. A track merely played is weaker evidence than a track completed.
+        model.artists.entries
+            .map { (artist, affinity) -> artist to affinity.at(now, HALF_LIFE_ARTIST) }
+            .filter { (_, affinity) -> affinity > 0.0 }
+            .sortedByDescending { (_, affinity) -> affinity }
+            .take(TOP_ARTISTS)
+            .forEach { (artist, _) ->
+                model.tracks.values
+                    .asSequence()
+                    .filter { it.ref.artistKey == artist && it.stats.completes > 0 }
+                    .sortedByDescending { it.stats.weight.at(now, HALF_LIFE_TRACK) }
+                    .take(ARTIST_TRACKS)
+                    .forEach { add(it.ref) }
+            }
+
+        model.tracks.values
+            .asSequence()
+            .filter { it.stats.liked }
+            .sortedByDescending { it.stats.weight.at(now, HALF_LIFE_TRACK) }
+            .take(LIKED_CANDIDATES)
+            .forEach { add(it.ref) }
+
+        return pool
+    }
+
+    /**
+     * One candidate's score.
+     *
+     * Affinities are squashed with `tanh(x/2)` so a track loved fifty times cannot drown out a
+     * transition that is a direct, recent statement about what follows. Counts and rates enter
+     * unscaled because they are already bounded.
+     */
+    private fun score(
+        candidate: TrackRef,
+        currentKey: String?,
+        previousKey: String?,
+        model: TasteModel,
+        context: List<String>,
+        now: Long,
+    ): Double {
+        val edge1 = currentKey?.let { model.edges[it]?.get(candidate.key) }?.at(now, HALF_LIFE_EDGE) ?: 0.0
+        val edge2 = previousKey?.let { model.edges[it]?.get(candidate.key) }?.at(now, HALF_LIFE_EDGE) ?: 0.0
+
+        val entry = model.tracks[candidate.key]
+        val stats = entry?.stats ?: TrackStats()
+
+        val artistAffinity = tanh((model.artists[candidate.artistKey]?.at(now, HALF_LIFE_ARTIST) ?: 0.0) / SQUASH)
+        val tagAffinity = candidate.tags
+            .takeIf { it.isNotEmpty() }
+            ?.map { model.tags[it]?.at(now, HALF_LIFE_TAG) ?: 0.0 }
+            ?.average()
+            ?.let { tanh(it / SQUASH) }
+            ?: 0.0
+
+        val familiarity = ln(1.0 + stats.completes.toDouble())
+        val liked = if (stats.liked) LIKED_BONUS else 0.0
+        val novelty = if (stats.plays == 0) NOVELTY_BONUS else 0.0
+        val skip = if (stats.plays >= 2) SKIP_PENALTY * stats.skipRate() else 0.0
+        val repeats = context.takeLast(3).count { key ->
+            model.tracks[key]?.ref?.artistKey == candidate.artistKey
+        }
+
+        return edge1 +
+            EDGE2_WEIGHT * edge2 +
+            ARTIST_WEIGHT * artistAffinity +
+            TAG_WEIGHT * tagAffinity +
+            FAMILIARITY_WEIGHT * familiarity +
+            liked +
+            novelty -
+            skip -
+            REPEAT_PENALTY * repeats
+    }
+
+    /**
+     * Softmax over the top [limit] candidates at [SOFTMAX_TEMPERATURE], then a draw.
+     *
+     * Returns null only when there is nothing to pick. The top slice keeps a bad tail from being
+     * sampled just because it exists; the softmax keeps the order inside the slice from being fixed.
+     */
+    private fun sample(scored: List<Pair<TrackRef, Double>>, limit: Int): TrackRef? {
+        if (scored.isEmpty()) return null
+
+        val top = scored.sortedByDescending { it.second }.take(limit)
+        if (top.size == 1) return top.first().first
+
+        val max = top.maxOf { it.second }
+        val weights = top.map { exp((it.second - max) / SOFTMAX_TEMPERATURE) }
+        val total = weights.sum()
+        if (total <= 0.0 || !total.isFinite()) return top.first().first
+
+        var draw = random.nextDouble() * total
+        for (index in top.indices) {
+            draw -= weights[index]
+            if (draw <= 0.0) return top[index].first
+        }
+        return top.last().first
     }
 
     /** Writes any queued model immediately. */
@@ -280,5 +491,38 @@ class TasteEngine(
 
         /** The most tracks the model will hold. */
         const val MAX_TRACKS = 20_000
+
+        /** How many recent keys Autoplay refuses to repeat. */
+        const val RECENT_WINDOW = 40
+
+        /** Out-edges of the current track considered as candidates. */
+        const val CANDIDATE_EDGES = 15
+
+        /** Artists whose completed catalogue enters the pool. */
+        const val TOP_ARTISTS = 5
+
+        /** Completed tracks taken per top artist. */
+        const val ARTIST_TRACKS = 25
+
+        /** Liked tracks always enter the pool, however they scored. */
+        const val LIKED_CANDIDATES = 20
+
+        /** Candidates the softmax draws from. */
+        const val MODEL_TOP = 8
+
+        /** Lower is greedier. A higher temperature flattens the distribution. */
+        const val SOFTMAX_TEMPERATURE = 0.35
+
+        /** `tanh(x / SQUASH)` bounds an affinity to (-1, 1). */
+        const val SQUASH = 2.0
+
+        const val EDGE2_WEIGHT = 0.4
+        const val ARTIST_WEIGHT = 0.6
+        const val TAG_WEIGHT = 0.5
+        const val FAMILIARITY_WEIGHT = 0.2
+        const val LIKED_BONUS = 0.3
+        const val NOVELTY_BONUS = 0.15
+        const val SKIP_PENALTY = 0.8
+        const val REPEAT_PENALTY = 0.5
     }
 }
