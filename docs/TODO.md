@@ -33,17 +33,17 @@ network available and once in airplane mode (cold start must fall back without c
 
 ### YTM radio live check
 
-`YtmRadio` is parsed and tested against `app/src/test/resources/ytm/radio-next.json`, but the live
-`youtubei/v1/next` endpoint was not reachable from the build environment. Verify the response shape
-still matches:
+`YtmRadio` is parsed and tested against `app/src/test/resources/ytm/radio-next.json`, and the live
+endpoint was verified on an emulator. The request must name the generated mix
+(`playlistId=RDAMVM<videoId>`) or the endpoint answers with only the current track:
 
 ```bash
 curl -s 'https://music.youtube.com/youtubei/v1/next?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30' \
   -H 'Content-Type: application/json' \
-  --data '{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20260707.12.00","hl":"en","gl":"US"}},"videoId":"dQw4w9WgXcQ","isAudioOnly":true,"params":"wAEB"}' \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("playlistPanelVideoRenderer present:", "playlistPanelVideoRenderer" in json.dumps(d))'
+  --data '{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20260707.12.00","hl":"en","gl":"US"}},"videoId":"dQw4w9WgXcQ","playlistId":"RDAMVMdQw4w9WgXcQ","isAudioOnly":true,"params":"wAEB"}' \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("radio rows:", json.dumps(d).count("playlistPanelVideoRenderer"))'
 ```
 
-If the shape has moved, update `YtmRadio.parse` (it recursively scans for
+Expected: about 50 rows. If the shape has moved, update `YtmRadio.parse` (it recursively scans for
 `playlistPanelVideoRenderer`, so only the row's own field names would need changing) and re-save
 the fixture from the real response.
