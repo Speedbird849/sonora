@@ -438,9 +438,13 @@ object SonoraBackend {
      */
     suspend fun autoplayNext(context: Context, cur: TrackRef?, count: Int): List<LibraryTrack> {
         val engine = taste(context)
-        val refs = engine.next(cur, count) { seed ->
-            val videoId = seed?.ytmId ?: cur?.ytmId ?: return@next emptyList()
-            YtmRadio.related(videoId).map { it.toTrackRef() }
+        // Scoring walks the model; the radio call inside `next` is non-blocking, so the whole pick
+        // runs off the main thread and the refill never competes with a frame.
+        val refs = withContext(Dispatchers.Default) {
+            engine.next(cur, count) { seed ->
+                val videoId = seed?.ytmId ?: cur?.ytmId ?: return@next emptyList()
+                YtmRadio.related(videoId).map { it.toTrackRef() }
+            }
         }
         return refs.mapNotNull { it.toLibraryTrack() }
     }
