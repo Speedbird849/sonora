@@ -2,8 +2,10 @@ package dev.sonora.playback
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -24,6 +26,7 @@ import dev.sonora.ytm.YtmStream
  * services, two foreground types, two independent lifecycles — playback should not stop because
  * the network dropped, or vice versa.
  */
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
