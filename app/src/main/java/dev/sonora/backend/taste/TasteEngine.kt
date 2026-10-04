@@ -117,6 +117,14 @@ class TasteEngine(
         }
     }
 
+    /** Replaces the model with an imported one and writes it. */
+    suspend fun replace(imported: TasteModel) {
+        mutex.withLock {
+            model = imported
+            store.writeNow(imported)
+        }
+    }
+
     /**
      * Picks the next [count] tracks to play after [cur].
      *
@@ -398,8 +406,16 @@ class TasteEngine(
         val updated = nodes[ref.key]?.add(weighted, now, HALF_LIFE_EDGE)
             ?: Decayed().add(weighted, now, HALF_LIFE_EDGE)
 
+        val counts = model.edgeCounts[previous].orEmpty()
+        val prunedNodes = pruneNode(nodes + (ref.key to updated), now)
+
         return model.copy(
-            edges = model.edges + (previous to pruneNode(nodes + (ref.key to updated), now)),
+            edges = model.edges + (previous to prunedNodes),
+            // Counts travel with their edges, so the pair a pruned node keeps is the same pair on
+            // both sides and the screen never shows a transition that is not there.
+            edgeCounts = model.edgeCounts + (previous to prunedNodes.mapValues { (to, _) ->
+                counts[to]?.plus(1) ?: 1
+            }),
         )
     }
 
@@ -432,6 +448,9 @@ class TasteEngine(
         return model.copy(
             tracks = model.tracks.filterKeys { it !in dropped },
             edges = model.edges
+                .filterKeys { it !in dropped }
+                .mapValues { (_, nodes) -> nodes.filterKeys { it !in dropped } },
+            edgeCounts = model.edgeCounts
                 .filterKeys { it !in dropped }
                 .mapValues { (_, nodes) -> nodes.filterKeys { it !in dropped } },
         )
