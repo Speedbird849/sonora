@@ -9,7 +9,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToStream
 
 /**
  * Persists the taste model to one JSON document.
@@ -30,7 +32,11 @@ class TasteStore(
 
     private val json = Json {
         ignoreUnknownKeys = true
-        encodeDefaults = true
+        // Omit defaults and nulls: a track's optional fields (tags, ids, duration) are null or
+        // empty for most entries, and writing them for twenty thousand tracks is both a larger file
+        // and more work on the hot save path. Every field decodes back to its default.
+        encodeDefaults = false
+        explicitNulls = false
     }
 
     private val lock = Mutex()
@@ -107,16 +113,25 @@ class TasteStore(
     /** Writes [model] now, synchronously. For callers that already own the write thread. */
     fun writeNow(model: TasteModel) = writeAtomically(model)
 
+    @OptIn(ExperimentalSerializationApi::class)
     private fun writeAtomically(model: TasteModel) {
         file.parentFile?.mkdirs()
 
-        // The backup is only refreshed from a document that parses, so a corrupt main can never
-        // overwrite the last good copy with itself.
-        if (read(file) != null) runCatching { file.copyTo(backupFile, overwrite = true) }
+        // The backup is a byte copy of the previous document, not a re-parse: the write path is on
+        // the hot side of the debounce, and parsing a twenty-thousand-track file only to prove it
+        // is valid before backing it up is the slowest part of the save. Writes are atomic (temp +
+        // rename), so the main file is never half-written; a file damaged from outside is handled on
+        // the read side.
+        if (file.exists()) runCatching { file.copyTo(backupFile, overwrite = true) }
 
         val temporary = File.createTempFile("${file.name}.", ".tmp", file.parentFile)
         try {
-            temporary.writeText(json.encodeToString(TasteModel.serializer(), model))
+            // Streamed rather than encoded to a String first: a twenty-thousand-track model is
+            // megabytes, and building it in memory only to write it straight back out is the
+            // slowest part of the save.
+            temporary.outputStream().buffered().use { output ->
+                json.encodeToStream(TasteModel.serializer(), model, output)
+            }
             // rename(2) replaces the target atomically; Files.move would unlink it first and lose a
             // race against a reader.
             temporary.renameTo(file)
