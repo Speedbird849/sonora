@@ -90,6 +90,13 @@ object SonoraBackend {
     private const val SEARCH_HISTORY_FILE = "searches.json"
     private const val PLAY_HISTORY_FILE = "plays.json"
     private const val TASTE_FILE = "taste.json"
+
+    /** Synthetic plays from an import are spaced this far apart so no edge can form. */
+    private const val SEED_SPACING_MS = 60L * 60L * 1000L
+
+    /** A seeded track with no known length is recorded as a three-minute listen. */
+    private const val SEED_DEFAULT_DURATION_MS = 180_000L
+
     private const val METADATA_CACHE_DIRECTORY = "metadata"
     private const val COVER_ART_CACHE_DIRECTORY = "covers"
     private const val MAX_FILENAME_LENGTH = 180
@@ -443,6 +450,38 @@ object SonoraBackend {
         scope.launch {
             val engine = taste(context)
             engine.reset()
+            _taste.value = engine.snapshot()
+        }
+    }
+
+    /**
+     * Seeds the model from an imported playlist.
+     *
+     * Each track is recorded as a completed play by the user, spaced an hour apart so no transition
+     * edge forms — an import says "these songs are mine", not "these songs play in this order", and
+     * letting the sequence teach the graph would put a playlist's arbitrary ordering into Autoplay.
+     * The spacing also keeps the import out of the recent window's way: the last synthetic play is
+     * an hour old, so the next real play does not form an edge with it either.
+     */
+    fun seedTaste(context: Context, tracks: List<LibraryTrack>) {
+        if (tracks.isEmpty()) return
+
+        scope.launch(Dispatchers.IO) {
+            val engine = taste(context)
+            val now = System.currentTimeMillis()
+            val refs = tracks.map { it.toTrackRef() }.distinctBy { it.key }
+
+            refs.forEachIndexed { index, ref ->
+                val duration = ref.durationMs ?: SEED_DEFAULT_DURATION_MS
+                engine.recordPlay(
+                    ref = ref,
+                    listenedMs = duration,
+                    durationMs = duration,
+                    origin = Origin.USER,
+                    liked = false,
+                    now = now - (refs.size - index).toLong() * SEED_SPACING_MS,
+                )
+            }
             _taste.value = engine.snapshot()
         }
     }
