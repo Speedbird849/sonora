@@ -351,9 +351,11 @@ private fun MainTabs(state: BackendState) {
         // The write half is handed in rather than reached for, because creating a playlist needs a
         // Context this object only has once the tabs are being drawn.
         val importRunner = remember {
-            SpotifyImportRunner { draft ->
-                SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
+            SpotifyImportRunner { draft, seed ->
+                val id = SonoraBackend.importSpotifyPlaylist(context, draft.title, draft.matched)
                     ?: error("the import produced no playlist")
+                if (seed) SonoraBackend.seedTaste(context, draft.matched)
+                id
             }
         }
 
@@ -727,8 +729,8 @@ private fun MainTabs(state: BackendState) {
             SpotifyImportSheet(
                 state = importRunner.state.collectAsState().value,
                 onStart = { link -> importRunner.start(scope, link) },
-                onConfirm = { draft ->
-                    scope.launch { importRunner.confirm(draft) }
+                onConfirm = { draft, seed ->
+                    scope.launch { importRunner.confirm(draft, seed) }
                 },
                 onDismiss = {
                     spotifyImport = false
