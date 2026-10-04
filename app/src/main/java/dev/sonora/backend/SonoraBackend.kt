@@ -12,6 +12,7 @@ import dev.sonora.backend.taste.Origin
 import dev.sonora.backend.taste.TasteEngine
 import dev.sonora.backend.taste.TasteModel
 import dev.sonora.backend.taste.TasteStore
+import dev.sonora.backend.taste.TasteTransfer
 import dev.sonora.backend.taste.TrackRef
 import dev.sonora.backend.taste.toLibraryTrack
 import dev.sonora.backend.taste.toTrackRef
@@ -442,6 +443,34 @@ object SonoraBackend {
         scope.launch {
             val engine = taste(context)
             engine.reset()
+            _taste.value = engine.snapshot()
+        }
+    }
+
+    /** Writes the model to a document the user picked, for backup or to move to another device. */
+    fun exportTaste(context: Context, uri: Uri) {
+        scope.launch {
+            val text = TasteTransfer.encode(taste(context).snapshot())
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+            }.onFailure { Log.w(TAG, "could not export taste: ${it.message}") }
+        }
+    }
+
+    /** Reads a document the user picked and replaces the model with it. */
+    fun importTaste(context: Context, uri: Uri) {
+        scope.launch {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull() ?: return@launch
+
+            val imported = TasteTransfer.decode(text) ?: run {
+                Log.w(TAG, "imported taste document did not parse")
+                return@launch
+            }
+
+            val engine = taste(context)
+            engine.replace(imported)
             _taste.value = engine.snapshot()
         }
     }
