@@ -35,9 +35,9 @@ class TasteStore(
 
     private val lock = Mutex()
 
+    @Volatile
     private var pending: TasteModel? = null
     private var job: Job? = null
-
     /** The previous good document, or the corrupt one when no good one was ever written. */
     val backupFile: File get() = File(file.parentFile, "${file.name}.bak")
 
@@ -82,13 +82,26 @@ class TasteStore(
     suspend fun flush() {
         job?.cancel()
         job = null
-        drain()
+
+        // Loop rather than one pass: a write in flight does not hold up a new record, so a model
+        // queued while the disk was busy would otherwise be left behind.
+        while (true) {
+            val model = pending ?: break
+            lock.withLock {
+                writeAtomically(model)
+                // Cleared only after the write lands, and only if nothing newer was queued in the
+                // meantime — a pending value dropped before its write is a lost save.
+                if (pending === model) pending = null
+            }
+        }
     }
 
     private suspend fun drain() {
         val model = pending ?: return
-        pending = null
-        lock.withLock { writeAtomically(model) }
+        lock.withLock {
+            writeAtomically(model)
+            if (pending === model) pending = null
+        }
     }
 
     /** Writes [model] now, synchronously. For callers that already own the write thread. */
