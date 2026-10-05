@@ -11,7 +11,10 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dev.sonora.ui.RemoteArtworkCache
+import dev.sonora.backend.taste.Origin
+import dev.sonora.backend.taste.toTrackRef
 import dev.sonora.playback.PlaybackService
+import dev.sonora.playback.PlaybackTracker
 import dev.sonora.ytm.YtmAudio
 import dev.sonora.ytm.YtmStream
 import kotlinx.coroutines.CoroutineScope
@@ -87,11 +90,27 @@ object SonoraPlayer {
      */
     var onTrackStarted: ((LibraryTrack) -> Unit)? = null
 
+    /** The application context, kept for the taste hooks that outlive any one screen. */
+    private var appContext: Context? = null
+
+    private var tracker: PlaybackTracker? = null
+
+    /** Keys the engine put on the queue, so a play of one is attributed to Autoplay. */
+    private val autoplayPicks = HashSet<String>()
+
+    private val _autoplayKeys = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Queue keys Autoplay added, for the "Autoplay" label. */
+    val autoplayKeys: StateFlow<Set<String>> = _autoplayKeys.asStateFlow()
+
+    private var refillJob: Job? = null
+
     /** Starts connecting to the playback service. Safe to call repeatedly. */
     fun connect(context: Context) {
         if (controller != null || connecting) return
 
         connecting = true
+        appContext = context.applicationContext
         val appContext = context.applicationContext
         val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
         val future = MediaController.Builder(appContext, token).buildAsync()
@@ -105,6 +124,11 @@ object SonoraPlayer {
                     .getOrNull()
 
                 controller?.addListener(listener)
+                controller?.let { active ->
+                    tracker = PlaybackTracker(active) { mediaId, listened, duration, ended ->
+                        onTastePlayed(mediaId, listened, duration, ended)
+                    }.also { it.start() }
+                }
 
                 // Shuffle survives on the service across a UI restart, so the mirrored state is
                 // read back rather than assumed to start off.
@@ -573,6 +597,72 @@ object SonoraPlayer {
         )
 
         onTrackStarted?.invoke(track)
+        maybeRefill(track)
+    }
+
+    /**
+     * Records one finished play with the taste engine.
+     *
+     * The origin is read from the keys the engine put on the queue: a play of one of its own picks
+     * counts for less, so the model cannot reward itself into a loop.
+     */
+    private fun onTastePlayed(mediaId: String, listenedMs: Long, durationMs: Long?, endedNaturally: Boolean) {
+        val context = appContext ?: return
+        val track = _upNext.value.queue.find { it.key == mediaId } ?: return
+
+        // A natural ending with no reported duration is still a full listen; say so rather than
+        // hand the engine a zero-length track it would score as a skip.
+        val duration = when {
+            durationMs != null && durationMs > 0L -> durationMs
+            endedNaturally -> listenedMs.coerceAtLeast(1L)
+            else -> 0L
+        }
+
+        val origin = if (mediaId in autoplayPicks) Origin.AUTOPLAY else Origin.USER
+        scope.launch { SonoraBackend.recordTaste(context, track, listenedMs, duration, origin) }
+    }
+
+    /**
+     * Tops the queue up when it is nearly done.
+     *
+     * Appends only: what the listener queued is never reordered or removed, and a refill that is
+     * already in flight is left alone rather than stacked. The queue is compared before appending
+     * because the radio call is a network round trip and the listener may have started something
+     * else in the meantime.
+     */
+    private fun maybeRefill(track: LibraryTrack) {
+        val context = appContext ?: return
+        if (!SonoraBackend.settings.value.autoplay) return
+        if (refillJob?.isActive == true) return
+
+        val queue = _upNext.value.queue
+        val remaining = queue.size - 1 - _upNext.value.index
+        if (remaining > AUTOPLAY_HEADROOM) return
+
+        refillJob = scope.launch {
+            val picks = runCatching {
+                SonoraBackend.autoplayNext(context, track.toTrackRef(), AUTOPLAY_BATCH)
+            }.getOrDefault(emptyList())
+            if (picks.isEmpty()) return@launch
+
+            val active = controller ?: return@launch
+            if (_upNext.value.queue != queue) return@launch
+
+            val items = mutableListOf<MediaItem>()
+            val playable = mutableListOf<LibraryTrack>()
+            for (pick in picks) {
+                val item = itemFor(pick) ?: continue
+                playable += pick
+                items += item
+            }
+            if (items.isEmpty()) return@launch
+
+            active.addMediaItems(active.mediaItemCount, items)
+            _upNext.value = UpNext(queue = queue + playable, index = _upNext.value.index)
+            autoplayPicks += playable.map { it.key }
+            _autoplayKeys.value = autoplayPicks.toSet()
+            Log.d(TAG, "autoplay: appended ${items.size} track(s)")
+        }
     }
 
     /** Media3 reports the repeat mode as an int; this keeps that detail out of the state. */
@@ -624,4 +714,10 @@ object SonoraPlayer {
     /** Big enough for the notification's own copy of a cover, which it scales down itself. */
 
     private const val NOTIFICATION_ART_PX = 544
+
+    /** How many items may remain before Autoplay tops the queue up. */
+    private const val AUTOPLAY_HEADROOM = 2
+
+    /** How many picks one refill adds. */
+    private const val AUTOPLAY_BATCH = 5
 }

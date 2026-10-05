@@ -2,14 +2,17 @@ package dev.sonora.playback
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dev.sonora.R
+import dev.sonora.backend.SonoraBackend
 import dev.sonora.ytm.YtmStream
 
 /**
@@ -23,6 +26,7 @@ import dev.sonora.ytm.YtmStream
  * services, two foreground types, two independent lifecycles — playback should not stop because
  * the network dropped, or vice versa.
  */
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
@@ -87,7 +91,18 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
+    /**
+     * The task was swiped away. The process may be killed next, so the taste model is written now
+     * rather than left to the debounce.
+     */
+    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+        SonoraBackend.flushTaste()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
+        SonoraBackend.flushTaste()
+
         session?.run {
             player.release()
             release()

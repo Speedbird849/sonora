@@ -60,6 +60,9 @@ what stops a liked song from failing to appear in Liked Songs.
   away, and a tap to browse them instead of following.
 - **Infinite autoplay** — the queue does not run out; when it gets near the end it tops itself up
   from the artist you are listening to, and keeps going.
+- **On-device taste** — it learns what you finish, skip, like and what plays after what, and keeps
+  that model on the phone. Autoplay refills from it and from YouTube Music's radio, preferring a
+  lossless copy you already have. Export or import it, or erase it, from Settings → Taste.
 - **Spotify import** — paste a playlist link, see what matched and what did not before anything is
   added, and get the tracks as streams rather than as downloads.
 - **Resharing** — the folder you download to is shared back, with browsing and uploads working.
