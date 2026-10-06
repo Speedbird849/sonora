@@ -308,6 +308,17 @@ fun SearchScreen(
                         track = track,
                         onClick = { SonoraPlayer.play(context, track) },
                         meta = listOfNotNull(recent.artist).joinToString("  ·  "),
+                        trailing = {
+                            IconButton(
+                                onClick = { SonoraBackend.forgetRecentTrack(context, recent.key) },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Remove ${recent.title}",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
                     )
                 }
 
