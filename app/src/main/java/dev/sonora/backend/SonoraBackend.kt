@@ -974,6 +974,22 @@ object SonoraBackend {
         scope.launch { _recentTracks.value = recentTrackStore(context).load() }
     }
 
+    /**
+     * Forgets one track from the recently-played list.
+     *
+     * The list exists only to offer a track back, so removing a row removes the offer and nothing
+     * else: the play history and the library are untouched.
+     */
+    fun forgetRecentTrack(context: Context, key: String) {
+        scope.launch {
+            val updated = _recentTracks.value.filterNot { it.key == key }
+            if (updated == _recentTracks.value) return@launch
+
+            recentTrackStore(context).save(updated)
+            _recentTracks.value = updated
+        }
+    }
+
     private fun settingsStore(context: Context) =
         SettingsStore(File(context.filesDir, SETTINGS_FILE))
 
